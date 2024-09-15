@@ -118,7 +118,7 @@ class CMMVAEModel(BaseModel):
         adversarial_optimizers = optims["adversarials"]
 
         # Perform forward pass and compute the loss
-        qz, pz, z, xhats, cg_xhats, hidden_representations = self.module(
+        qz, pz, z, xhats, hidden_representations = self.module(
             x, metadata, expert_id
         )
 
@@ -214,7 +214,7 @@ class CMMVAEModel(BaseModel):
         expert_label = self.module.experts.labels[expert_id]
 
         # Perform forward pass and compute the loss
-        qz, pz, z, xhats, cg_xhats, hidden_representations = self.module(
+        qz, pz, z, xhats, hidden_representations = self.module(
             x, metadata, expert_id
         )
 
@@ -294,7 +294,7 @@ class CMMVAEModel(BaseModel):
             for expert_id in self.module.experts
         }
         optimizers["vae"] = torch.optim.Adam(
-            self.module.vae.encoder.parameters(), lr=1e-3, weight_decay=1e-6
+            self.module.vae.parameters(), lr=1e-3, weight_decay=1e-6
         )
         optimizers["adversarials"] = {
             i: torch.optim.Adam(module.parameters(), lr=1e-3, weight_decay=1e-6)
