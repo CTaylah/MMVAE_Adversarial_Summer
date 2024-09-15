@@ -31,7 +31,7 @@ def create_discriminators(latent_dim):
         nn.Sigmoid()
     )
 
-    human_disc = nn.Sequential(
+    mouse_disc = nn.Sequential(
         nn.Linear(52417, 128),
         nn.Sigmoid(),
         nn.Linear(128, 64),
@@ -40,7 +40,7 @@ def create_discriminators(latent_dim):
         nn.Sigmoid()
     )
 
-    mouse_disc = nn.Sequential(
+    human_disc = nn.Sequential(
         nn.Linear(60664, 128),
         nn.Sigmoid(),
         nn.Linear(128, 64),
@@ -91,7 +91,7 @@ def create_dataloader(batch_size: int):
 def train_md(model: CMMVAEModel, dataloader, discriminators: dict, 
              writer: SummaryWriter, device, num_epochs=15, lr=0.001):
     d = discriminators
-    optimzers = {
+    optimizers = {
         "latent": torch.optim.Adam(d["latent"].parameters(), lr=lr),
         "human": torch.optim.Adam(d["human"].parameters(), lr=lr),
         "mouse": torch.optim.Adam(d["mouse"].parameters(), lr=lr)
@@ -105,7 +105,7 @@ def train_md(model: CMMVAEModel, dataloader, discriminators: dict,
     model.to(device)
     model.eval()
     for epoch in range(num_epochs):
-        latent_loss, human_loss, mouse_loss = 0, 0, 0
+        latent_loss, human_disc_loss, mouse_disc_loss = 0, 0, 0
         batch_iteration = 0
         for x, metadata, expert_id in dataloader:
             batch_iteration += 1
@@ -134,33 +134,55 @@ def train_md(model: CMMVAEModel, dataloader, discriminators: dict,
             )
 
             l_loss.backward()
-            optimzers["latent"].step()
+            optimizers["latent"].step()
 
             latent_loss += l_loss
             if expert_id == "human": 
-                species_disc_output = d["mouse"](cg_xhats["mouse"])
+                #Cis generation, human
+                human_disc_output = d["human"](x)
                 h_loss = nn.functional.binary_cross_entropy(
-                    species_disc_output, human_label, reduction="mean"
+                    human_disc_output, human_label, reduction="mean"
+                    )
+                human_disc_loss += h_loss
+
+                # Cross generation, mouse
+                mouse_disc_output = d["mouse"](xhats["mouse"])
+                m_loss = nn.functional.binary_cross_entropy(
+                    mouse_disc_output, mouse_label, reduction="mean"
                 )
-                human_loss += h_loss
+                mouse_disc_loss += m_loss
 
                 h_loss.backward()
-                optimzers["mouse"].step()
+                m_loss.backward()
+                optimizers["human"].step()
+                optimizers["mouse"].step()
+                
                 
             else:
-                species_disc_output = d["human"](cg_xhats["human"])
+                #Cis generation, mouse
+                mouse_disc_output = d["mouse"](x)
                 m_loss = nn.functional.binary_cross_entropy(
-                    species_disc_output, mouse_label, reduction="mean"
+                    mouse_disc_output, mouse_label, reduction="mean"
                     )
-                m_loss.backward()
+                mouse_disc_loss += m_loss
 
-                mouse_loss += m_loss
-                optimzers["human"].step()
+                # Cross generation, human
+                human_disc_output = d["human"](xhats["human"])
+                h_loss = nn.functional.binary_cross_entropy(
+                    human_disc_output, human_label, reduction="mean"
+                    )
+
+                human_disc_loss += m_loss
+
+                m_loss.backward()
+                h_loss.backward()
+                optimizers["mouse"].step()
+                optimizers["human"].step()
 
 
         writer.add_scalar('meta_disc/md_latent', latent_loss / batch_iteration, epoch)
-        writer.add_scalar('meta_disc/md_human', human_loss / batch_iteration, epoch)
-        writer.add_scalar('meta_disc/md_mouse', mouse_loss / batch_iteration, epoch)
+        writer.add_scalar('meta_disc/md_human', human_disc_loss / batch_iteration, epoch)
+        writer.add_scalar('meta_disc/md_mouse', mouse_disc_loss / batch_iteration, epoch)
 
     
 def run_md_tests(log_directory, checkpoint_path, config_path):
