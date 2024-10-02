@@ -49,6 +49,8 @@ class CMMVAE(nn.Module):
         self.adversarials = nn.ModuleList(
             [FCBlock(config) for config in adversarials if config]
         )
+        
+        self.layer_norm = nn.LayerNorm(256)
 
     def forward(
         self,
@@ -88,6 +90,8 @@ class CMMVAE(nn.Module):
 
         # Pass through the VAE
         qz, pz, z, shared_xhat, hidden_representations = self.vae(shared_x, metadata)
+
+
 
         xhats = {}
 

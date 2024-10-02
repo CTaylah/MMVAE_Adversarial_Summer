@@ -112,7 +112,7 @@ def train_md(model: CMMVAEModel, dataloader, discriminators: dict,
             x = x.to(device)
 
             with torch.no_grad():
-                qz, pz, z, xhats, cg_xhats, _ = model.module(
+                _, _, z, xhats,  _ = model.module(
                     x, metadata, expert_id, cross_generate=True
                 )
             if x.layout==torch.sparse_csr:

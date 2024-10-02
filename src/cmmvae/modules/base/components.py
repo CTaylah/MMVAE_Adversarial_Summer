@@ -592,7 +592,9 @@ class Encoder(nn.Module):
         return q_m, q_v, latent, hidden_representations
 
 
+
 class Expert(nn.Module):
+
     """
     Container that stores expert encoder and decoder networks.
 
@@ -615,6 +617,10 @@ class Expert(nn.Module):
             id (str): Name of expert (unique identifier)
             encoder (`FCBlock`): encoder network
             decoder (`FCBlock`): decoder network
+        adversarials (
+            Union[Optional[cmmvae.modules.base.FCBlockConfig],
+            List[Optional[cmmvae.modules.base.FCBlockConfig]]]
+        ): Configuration(s) for adversarial networks.
         """
         super().__init__()
 
@@ -625,7 +631,7 @@ class Expert(nn.Module):
     def forward(self, *args, **kwargs):
         """
         .. warning::
-            Forward pass will through NotImplementedError
+            Forward pass will throw NotImplementedError
             as it does not make sense to pass through
             joint encoder and decoder.
         """

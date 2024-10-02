@@ -5,7 +5,7 @@ init_args:
     init_args:
       kl_weight: 1.0
   record_gradients: false
-  adv_weight: 25
+  adv_weight: 1
   gradient_record_cap: 20
   module:
     class_path: cmmvae.modules.CMMVAE
@@ -88,7 +88,7 @@ init_args:
       adversarials:
       - class_path: cmmvae.modules.base.FCBlockConfig
         init_args:
-          layers: [ 256, 128, 64, 1 ]
+          layers: [ 256, 128, 64, 2 ]
           dropout_rate: 0.0
           use_batch_norm: False
           use_layer_norm: False
