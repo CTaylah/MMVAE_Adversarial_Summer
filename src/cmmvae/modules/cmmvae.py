@@ -49,6 +49,7 @@ class CMMVAE(nn.Module):
         self.adversarials = nn.ModuleList(
             [FCBlock(config) for config in adversarials if config]
         )
+        self.layer_norm = nn.LayerNorm(256)
 
     def forward(
         self,
