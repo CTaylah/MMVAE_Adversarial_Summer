@@ -77,7 +77,7 @@ class CMMVAEModel(BaseModel):
         kl_annealing_fn (cmmvae.modules.base.KLAnnealingFn): KLAnnealingFn for weighting KL Divergence. Defaults to KLAnnealingFn(1.0).
     """
 
-    def __init__(self, module: CMMVAE, adv_weight: float, *args, **kwargs):
+    def __init__(self, module: CMMVAE, adv_weight: float, adv_start_epoch: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.module = module
         self.automatic_optimization = (
@@ -89,6 +89,7 @@ class CMMVAEModel(BaseModel):
         )
         self.init_weights()
         self.adv_weight = adv_weight
+        self.adv_start_epoch = adv_start_epoch
 
     def training_step(
         self, batch: Tuple[torch.Tensor, pd.DataFrame, str], batch_idx: int
@@ -135,6 +136,8 @@ class CMMVAEModel(BaseModel):
         for i, (hidden_rep, adv) in enumerate(
             zip(hidden_representations, self.module.adversarials)
         ):
+
+            hidden_rep = self.module.layer_norm(hidden_rep)
             # Get adversarial predictions
             adv_output = adv(hidden_rep)
 
@@ -152,6 +155,7 @@ class CMMVAEModel(BaseModel):
         for i, (hidden_rep, adv) in enumerate(
             zip(hidden_representations, self.module.adversarials)
         ):
+            hidden_rep = self.module.layer_norm(hidden_rep)
             # Get adversarial predictions
             adv_output = adv(hidden_rep)
 
@@ -165,8 +169,12 @@ class CMMVAEModel(BaseModel):
             else:
                 adversarial_loss += current_adversarial_loss
 
+        adv_weight = 0
+        if self.current_epoch >= self.adv_start_epoch:
+            adv_weight = self.adv_weight
+
         loss_dict["adversarial_loss"] = adversarial_loss
-        loss = loss_dict[RK.LOSS] + self.adv_weight * adversarial_loss
+        loss = loss_dict[RK.LOSS] + adv_weight * adversarial_loss
 
         # Backpropagation for encoder and decoder
         self.manual_backward(loss)

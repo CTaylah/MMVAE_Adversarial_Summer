@@ -8,18 +8,18 @@ train_command:
     model: configs/model/config.yaml
     trainer:
       track:
-        test: configs/trainer/config.test.yaml
-        # full: configs/trainer/config.yaml
+        # test: configs/trainer/config.test.yaml
+        full: configs/trainer/config.yaml
     data:
       track:
         local: configs/data/local.yaml
-        server: configs/data/server.yaml
 
 categories:
 - 'donor_id'
 - 'assay'
 - 'dataset_id'
 - 'cell_type'
+- 'species'
 
 merge_keys:
 - z

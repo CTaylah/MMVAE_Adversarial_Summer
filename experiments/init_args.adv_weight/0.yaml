@@ -1,0 +1,19 @@
+experiment_name: init_args.adv_weight
+run_name: value=0
+train_command:
+  fit:
+    model: /active/debruinz_project/cardell_taylor/MMVAE/experiments/init_args.adv_weight/model/0.yaml
+    trainer:
+      track:
+        full: configs/trainer/config.yaml
+    data:
+      track:
+        local: configs/data/local.yaml
+categories:
+- donor_id
+- assay
+- dataset_id
+- cell_type
+- species
+merge_keys:
+- z
