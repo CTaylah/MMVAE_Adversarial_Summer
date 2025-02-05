@@ -1,10 +1,10 @@
 # experiments.yaml
 
-experiment_name: bce_testing
-run_name: assay_species_weight_1_30_epochs_sum
+experiment_name: February_4th
+run_name: GRF_lamda_100
 train_command:
   fit:
-    model: configs/model/adv_trials/assay_species.yaml
+    model: configs/model/parallel/adversarial-conditional.yaml
     trainer:
       track:
         # test: configs/trainer/config.test.yaml
@@ -14,14 +14,12 @@ train_command:
         local: configs/data/local_chunk.yaml
         # server: configs/data/server.yaml
 
-
 categories:
 - 'donor_id'
 - 'assay'
 - 'dataset_id'
 - 'cell_type'
 - 'species'
-
 
 merge_keys:
 - z

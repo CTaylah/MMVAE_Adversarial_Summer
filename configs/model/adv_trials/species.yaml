@@ -3,7 +3,7 @@ init_args:
   kl_annealing_fn:
     class_path: cmmvae.modules.base.KLAnnealingFn
     init_args:
-      kl_weight: 0.5
+      kl_weight: 1.0
   record_gradients: false
   adv_weight: 40
   adversarial_method: ""

@@ -9,7 +9,6 @@ cluster:
     --output=.cmmvae/logs/{rule}/job.%j.out
     --error=.cmmvae/logs/{rule}/job.%j.err
     --gpus-per-node={resources.gpus_per_node}
-    --account=student
     --ntasks=1
     --nodes=1
     --time={resources.runtime}
@@ -32,7 +31,7 @@ set-resources:
   train:
     partition: gpu
     mem: 100GB
-    gpus_per_node: tesla_v100s:1
+    gpus_per_node: 1
     cpus_per_task: 6
   predict:
     partition: gpu

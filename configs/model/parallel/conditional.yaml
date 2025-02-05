@@ -117,11 +117,4 @@ init_args:
                   use_batch_norm: False
                   use_layer_norm: False
                   activation_fn: torch.nn.ReLU
-      adversarials:
-      # - class_path: cmmvae.modules.base.FCBlockConfig
-      #   init_args:
-      #     layers: [ 256, 128, 64, 1 ]
-      #     dropout_rate: 0.0
-      #     use_batch_norm: False
-      #     use_layer_norm: False
-      #     activation_fn: torch.nn.Sigmoid
+      adversarial_groups:

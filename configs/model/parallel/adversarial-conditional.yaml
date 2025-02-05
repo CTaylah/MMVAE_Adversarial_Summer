@@ -1,14 +1,15 @@
 class_path: cmmvae.models.CMMVAEModel
 init_args:
-  kl_annealing_fn:
-    class_path: cmmvae.modules.base.annealing_fn.LinearKLAnnealingFn
-    init_args:
-      min_kl_weight: 0.1
-      max_kl_weight: 0.5
-      warmup_steps: 1e4
-      climax_steps: 6e4
+  # kl_annealing_fn:
+  #   class_path: cmmvae.modules.base.annealing_fn.LinearKLAnnealingFn
+  #   init_args:
+  #     min_kl_weight: 0.1
+  #     max_kl_weight: 1.0
+  #     warmup_steps: 1e4
+  #     climax_steps: 6e4
   record_gradients: false
-  adv_weight: 25
+  adv_weight: 1
+  adversarial_method: "GRF"
   gradient_record_cap: 20
   autograd_config:
     class_path: cmmvae.config.AutogradConfig
@@ -34,7 +35,7 @@ init_args:
       vae:
         class_path: cmmvae.modules.CLVAE
         init_args:
-          latent_dim: 128
+          latent_dim: 256
           encoder_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
@@ -43,22 +44,23 @@ init_args:
               use_batch_norm: True
               use_layer_norm: False
               activation_fn: torch.nn.ReLU
-              return_hidden: True
+              return_hidden: 
+              - True
           decoder_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
-              layers: [ 128, 256, 512 ]
+              layers: [ 256, 256, 512 ]
               dropout_rate: 0.0
-              use_batch_norm: False
+              use_batch_norm: True
               use_layer_norm: False
               activation_fn: torch.nn.ReLU
           conditional_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
-              layers: [ 128 ]
+              layers: [256]
               dropout_rate: 0.0
               use_batch_norm: False
-              use_layer_norm: True
+              use_layer_norm: False
               activation_fn: null
           concat_config:
             class_path: cmmvae.modules.base.ConcatBlockConfig
@@ -95,7 +97,7 @@ init_args:
                 init_args:
                   layers: [ 512, 1024, 60530 ]
                   dropout_rate: 0.0
-                  use_batch_norm: False
+                  use_batch_norm: True
                   use_layer_norm: False
                   activation_fn: torch.nn.ReLU
           - class_path: cmmvae.modules.base.Expert
@@ -114,17 +116,37 @@ init_args:
                 init_args:
                   layers: [ 512, 1024, 52437 ]
                   dropout_rate: 0.0
-                  use_batch_norm: False
+                  use_batch_norm: True
                   use_layer_norm: False
                   activation_fn: torch.nn.ReLU
-      adversarials:
-      - class_path: cmmvae.modules.base.FCBlockConfig
-        init_args:
-          layers: [ 256, 128, 64, 1 ]
-          dropout_rate: 0.0
-          use_batch_norm: False
-          use_layer_norm: False
-          activation_fn:
-          - torch.nn.ReLU
-          - torch.nn.ReLU
-          - torch.nn.Sigmoid
+      adversarial_groups:
+        - class_path: cmmvae.modules.base.AdversarialsGroup
+          init_args:
+            conditional: species
+            adversarials:
+            - class_path: cmmvae.modules.base.FCBlockConfig
+              init_args:
+                # layers: [ 256, 129, 1 ]
+                dropout_rate: 0.0
+                use_batch_norm: 
+                - True
+                - False
+                use_layer_norm: False
+                activation_fn: 
+                - torch.nn.LeakyReLU
+                - torch.nn.Sigmoid
+        - class_path: cmmvae.modules.base.AdversarialsGroup
+          init_args:
+            conditional: assay
+            adversarials:
+            - class_path: cmmvae.modules.base.FCBlockConfig
+              init_args:
+                layers: [ 256, 129, 26 ]
+                dropout_rate: 0.0
+                use_batch_norm: 
+                - True
+                - False
+                use_layer_norm: False
+                activation_fn: 
+                - torch.nn.LeakyReLU
+                - torch.nn.Sigmoid

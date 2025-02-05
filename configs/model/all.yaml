@@ -9,23 +9,23 @@ init_args:
   adversarial_method: ""
   gradient_record_cap: 20
   autograd_config:
-    # class_path: cmmvae.config.AutogradConfig
-    # init_args:
-    #   adversarial_gradient_clip:
-    #     class_path: cmmvae.config.GradientClipConfig
-    #     init_args:
-    #       val: 1
-    #       algorithm: norm
-    #   vae_gradient_clip:
-    #     class_path: cmmvae.config.GradientClipConfig
-    #     init_args:
-    #       val: 1
-    #       algorithm: norm
-    #   expert_gradient_clip:
-    #     class_path: cmmvae.config.GradientClipConfig
-    #     init_args:
-    #       val: 1
-    #       algorithm: norm
+    class_path: cmmvae.config.AutogradConfig
+    init_args:
+      adversarial_gradient_clip:
+        class_path: cmmvae.config.GradientClipConfig
+        init_args:
+          val: 10
+          algorithm: norm
+      vae_gradient_clip:
+        class_path: cmmvae.config.GradientClipConfig
+        init_args:
+          val: 10
+          algorithm: norm
+      expert_gradient_clip:
+        class_path: cmmvae.config.GradientClipConfig
+        init_args:
+          val: 10
+          algorithm: norm
   module:
     class_path: cmmvae.modules.CMMVAE
     init_args:
@@ -33,11 +33,6 @@ init_args:
         class_path: cmmvae.modules.CLVAE
         init_args:
           latent_dim: 128
-          # conditionals:
-          # - assay
-          # - donor_id
-          # - dataset_id
-          # - species
           encoder_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
@@ -60,12 +55,28 @@ init_args:
           conditional_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
-              layers:
-              - 128
+              layers: [ 128 ]
               dropout_rate: 0.0
-              use_batch_norm: True
-              use_layer_norm: False
+              use_batch_norm: False
+              use_layer_norm: True
               activation_fn: null
+          conditionals_directory: /mnt/projects/debruinz_project/cardell_taylor/test_backprop/MMVAE_Adversarial_Summer/conditionals
+          concat_config:
+            class_path: cmmvae.modules.base.ConcatBlockConfig
+            init_args:
+              dropout_rate: 0.0
+              use_batch_norm: False
+              use_layer_norm: False
+              activation_fn: torch.nn.ReLU
+          selection_order:
+          - parallel
+          conditionals:
+          - assay
+          - donor_id
+          - dataset_id
+          - species
+          - sex
+          - tissue
       experts:
         class_path: cmmvae.modules.base.Experts
         init_args:
@@ -113,13 +124,9 @@ init_args:
           init_args:
             conditional: species
             adversarials:
-            - class_path: cmmvae.modules.base.FCBlockConfig
+           - class_path: cmmvae.modules.base.FCBlockConfig
               init_args:
                 layers: [ 256, 16, 2 ]
-                dropout_rate: 0.0
-                use_batch_norm: 
-                - True
-                - False
                 use_layer_norm: False
                 activation_fn: 
                 - torch.nn.ReLU
@@ -187,29 +194,29 @@ init_args:
                 activation_fn:
                 - torch.nn.ReLU
                 - torch.nn.Softmax
-        - class_path: cmmvae.modules.base.AdversarialsGroup
-          init_args:
-            conditional: donor_id
-            adversarials:
-            - class_path: cmmvae.modules.base.FCBlockConfig
-              init_args:
-                layers: [ 256, 512, 7153]
-                dropout_rate: 0.0
-                use_batch_norm: 
-                - True
-                - False
-                use_layer_norm: False
-                activation_fn:
-                - torch.nn.ReLU
-                - torch.nn.Softmax
-            - class_path: cmmvae.modules.base.FCBlockConfig
-              init_args:
-                layers: [ 256, 512, 7153]
-                dropout_rate: 0.0
-                use_batch_norm: 
-                - True
-                - False
-                use_layer_norm: False
-                activation_fn:
-                - torch.nn.ReLU
-                - torch.nn.Softmax
+        # - class_path: cmmvae.modules.base.AdversarialsGroup
+        #   init_args:
+        #     conditional: donor_id
+        #     adversarials:
+        #     - class_path: cmmvae.modules.base.FCBlockConfig
+        #       init_args:
+        #         layers: [ 256, 512, 7153]
+        #         dropout_rate: 0.0
+        #         use_batch_norm: 
+        #         - True
+        #         - False
+        #         use_layer_norm: False
+        #         activation_fn:
+        #         - torch.nn.ReLU
+        #         - torch.nn.Softmax
+        #     - class_path: cmmvae.modules.base.FCBlockConfig
+        #       init_args:
+        #         layers: [ 256, 512, 7153]
+        #         dropout_rate: 0.0
+        #         use_batch_norm: 
+        #         - True
+        #         - False
+        #         use_layer_norm: False
+        #         activation_fn:
+        #         - torch.nn.ReLU
+        #         - torch.nn.Softmax
