@@ -1,14 +1,15 @@
+
 class_path: cmmvae.models.CMMVAEModel
 init_args:
-  # kl_annealing_fn:
-  #   class_path: cmmvae.modules.base.annealing_fn.LinearKLAnnealingFn
-  #   init_args:
-  #     min_kl_weight: 0.1
-  #     max_kl_weight: 1.0
-  #     warmup_steps: 1e4
-  #     climax_steps: 6e4
+  kl_annealing_fn:
+    class_path: cmmvae.modules.base.annealing_fn.LinearKLAnnealingFn
+    init_args:
+      min_kl_weight: 0.1
+      max_kl_weight: 2.0
+      warmup_steps: 1e3
+      climax_steps: 6e3
   record_gradients: false
-  adv_weight: 1
+  adv_weight: 50
   adversarial_method: "GRF"
   gradient_record_cap: 20
   autograd_config:
@@ -35,29 +36,29 @@ init_args:
       vae:
         class_path: cmmvae.modules.CLVAE
         init_args:
-          latent_dim: 256
+          latent_dim: 40
           encoder_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
-              layers: [ 512, 256 ]
+              layers: [ 512, 80 ]
               dropout_rate: 0.0
               use_batch_norm: True
               use_layer_norm: False
               activation_fn: torch.nn.ReLU
               return_hidden: 
-              - True
+              - False
           decoder_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
-              layers: [ 256, 256, 512 ]
+              layers: [ 40, 120, 512 ]
               dropout_rate: 0.0
-              use_batch_norm: True
+              use_batch_norm: False
               use_layer_norm: False
               activation_fn: torch.nn.ReLU
           conditional_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
-              layers: [256]
+              layers: [40]
               dropout_rate: 0.0
               use_batch_norm: False
               use_layer_norm: False
@@ -71,11 +72,13 @@ init_args:
               activation_fn: torch.nn.ReLU
           conditionals:
           - assay
-          - dataset_id
           - donor_id
-          - species
+          - dataset_id
+          - disease
+          - sex
           - tissue
-          selection_order:
+          - species
+          selection_order: 
           - parallel
       experts:
         class_path: cmmvae.modules.base.Experts
@@ -97,7 +100,7 @@ init_args:
                 init_args:
                   layers: [ 512, 1024, 60530 ]
                   dropout_rate: 0.0
-                  use_batch_norm: True
+                  use_batch_norm: False
                   use_layer_norm: False
                   activation_fn: torch.nn.ReLU
           - class_path: cmmvae.modules.base.Expert
@@ -116,7 +119,7 @@ init_args:
                 init_args:
                   layers: [ 512, 1024, 52437 ]
                   dropout_rate: 0.0
-                  use_batch_norm: True
+                  use_batch_norm: False
                   use_layer_norm: False
                   activation_fn: torch.nn.ReLU
       adversarial_groups:
@@ -126,27 +129,49 @@ init_args:
             adversarials:
             - class_path: cmmvae.modules.base.FCBlockConfig
               init_args:
-                layers: [ 256, 129, 2 ]
+                layers: [ 40, 32, 2 ]
                 dropout_rate: 0.0
-                use_batch_norm: 
+                use_batch_norm: False
+                use_layer_norm: 
                 - True
                 - False
-                use_layer_norm: False
                 activation_fn: 
-                - torch.nn.LeakyReLU
+                - torch.nn.ReLU
                 - null
+            # - class_path: cmmvae.modules.base.FCBlockConfig
+            #   init_args:
+            #     layers: [ 40, 32, 2 ]
+            #     dropout_rate: 0.0
+            #     use_batch_norm: False
+            #     use_layer_norm: 
+            #     - True
+            #     - False
+            #     activation_fn: 
+            #     - torch.nn.ReLU
+            #     - null
         - class_path: cmmvae.modules.base.AdversarialsGroup
           init_args:
             conditional: assay
             adversarials:
             - class_path: cmmvae.modules.base.FCBlockConfig
               init_args:
-                layers: [ 256, 129, 26 ]
+                layers: [ 40, 32, 26 ]
                 dropout_rate: 0.0
-                use_batch_norm: 
+                use_batch_norm: False
+                use_layer_norm: 
                 - True
                 - False
-                use_layer_norm: False
                 activation_fn: 
-                - torch.nn.LeakyReLU
+                - torch.nn.ReLU
                 - null
+            # - class_path: cmmvae.modules.base.FCBlockConfig
+            #   init_args:
+            #     layers: [ 40, 32, 26 ]
+            #     dropout_rate: 0.0
+            #     use_batch_norm: False
+            #     use_layer_norm: 
+            #     - True
+            #     - False
+            #     activation_fn: 
+            #     - torch.nn.ReLU
+            #     - null

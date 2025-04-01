@@ -1,10 +1,9 @@
 # experiments.yaml
-
-experiment_name: February_4th
-run_name: GRF_lamda_100
+experiment_name: liam_stuff_2
+run_name: distance_loss_10
 train_command:
   fit:
-    model: configs/model/parallel/adversarial-conditional.yaml
+    model: configs/liam_based/liam_clone.yaml
     trainer:
       track:
         # test: configs/trainer/config.test.yaml

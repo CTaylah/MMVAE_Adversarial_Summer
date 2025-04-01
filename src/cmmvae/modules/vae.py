@@ -97,9 +97,10 @@ class BaseVAE(nn.Module):
         """
         qz, z, hidden_representations = self.encode(x, **kwargs)
         pz = Normal(torch.zeros_like(z), torch.ones_like(z))
-        z = self.after_reparameterize(z, metadata, **kwargs)
-        xhat = self.decode(z, **kwargs)
-        return qz, pz, z, xhat, hidden_representations
+        z_mod = self.after_reparameterize(z, metadata, **kwargs)
+        hidden_representations.append(z)
+        xhat = self.decode(z_mod, **kwargs)
+        return qz, pz, z_mod, xhat, hidden_representations
 
     def elbo(
         self,

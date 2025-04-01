@@ -35,11 +35,11 @@ init_args:
       vae:
         class_path: cmmvae.modules.CLVAE
         init_args:
-          latent_dim: 256
+          latent_dim: 40
           encoder_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
-              layers: [ 512, 256 ]
+              layers: [ 512, 80 ]
               dropout_rate: 0.0
               use_batch_norm: True
               use_layer_norm: False
@@ -49,7 +49,7 @@ init_args:
           decoder_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
-              layers: [ 256, 256, 512 ]
+              layers: [ 40, 120, 512 ]
               dropout_rate: 0.0
               use_batch_norm: True
               use_layer_norm: False
@@ -57,7 +57,7 @@ init_args:
           conditional_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
-              layers: [256]
+              layers: [40]
               dropout_rate: 0.0
               use_batch_norm: False
               use_layer_norm: False
@@ -126,7 +126,7 @@ init_args:
             adversarials:
             - class_path: cmmvae.modules.base.FCBlockConfig
               init_args:
-                layers: [ 256, 129, 2 ]
+                layers: [ 40, 32, 2 ]
                 dropout_rate: 0.0
                 use_batch_norm: 
                 - True
@@ -141,12 +141,12 @@ init_args:
             adversarials:
             - class_path: cmmvae.modules.base.FCBlockConfig
               init_args:
-                layers: [ 256, 129, 26 ]
+                layers: [ 40, 32, 26 ]
                 dropout_rate: 0.0
                 use_batch_norm: 
                 - True
                 - False
-                use_layer_norm: False
+                use_layer_norm: True
                 activation_fn: 
                 - torch.nn.LeakyReLU
                 - null

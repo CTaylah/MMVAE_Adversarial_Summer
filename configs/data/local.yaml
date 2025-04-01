@@ -44,7 +44,7 @@ init_args:
     init_args:
       name: mouse
       return_dense: true
-      batch_size: 128
+      batch_size: 1024
       directory_path: /mnt/projects/debruinz_project/july2024_census_data/subset
       train_npz_masks:
       - mouse_counts_1.npz

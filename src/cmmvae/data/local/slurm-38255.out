@@ -1,0 +1,68 @@
+oligodendrocyte
+L2/3-6 intratelencephalic projecting glutamatergic neuron
+CD8-positive, alpha-beta T cell
+unknown
+4         oligodendrocyte
+72        oligodendrocyte
+77        oligodendrocyte
+86        oligodendrocyte
+103       oligodendrocyte
+               ...       
+200081    oligodendrocyte
+200090    oligodendrocyte
+200123    oligodendrocyte
+200136    oligodendrocyte
+200177    oligodendrocyte
+Name: cell_type, Length: 6166, dtype: category
+Categories (698, object): ['A2 amacrine cell', 'B cell', 'B-1 B cell', 'B-1a B cell', ...,
+                           'vein endothelial cell', 'ventricular cardiac muscle cell',
+                           'vip GABAergic cortical interneuron', 'visceromotor neuron']
+6166
+5         L2/3-6 intratelencephalic projecting glutamate...
+33        L2/3-6 intratelencephalic projecting glutamate...
+67        L2/3-6 intratelencephalic projecting glutamate...
+76        L2/3-6 intratelencephalic projecting glutamate...
+106       L2/3-6 intratelencephalic projecting glutamate...
+                                ...                        
+200007    L2/3-6 intratelencephalic projecting glutamate...
+200021    L2/3-6 intratelencephalic projecting glutamate...
+200039    L2/3-6 intratelencephalic projecting glutamate...
+200073    L2/3-6 intratelencephalic projecting glutamate...
+200083    L2/3-6 intratelencephalic projecting glutamate...
+Name: cell_type, Length: 7134, dtype: category
+Categories (698, object): ['A2 amacrine cell', 'B cell', 'B-1 B cell', 'B-1a B cell', ...,
+                           'vein endothelial cell', 'ventricular cardiac muscle cell',
+                           'vip GABAergic cortical interneuron', 'visceromotor neuron']
+7134
+6         CD8-positive, alpha-beta T cell
+65        CD8-positive, alpha-beta T cell
+81        CD8-positive, alpha-beta T cell
+97        CD8-positive, alpha-beta T cell
+116       CD8-positive, alpha-beta T cell
+                       ...               
+200016    CD8-positive, alpha-beta T cell
+200027    CD8-positive, alpha-beta T cell
+200095    CD8-positive, alpha-beta T cell
+200176    CD8-positive, alpha-beta T cell
+200180    CD8-positive, alpha-beta T cell
+Name: cell_type, Length: 5715, dtype: category
+Categories (698, object): ['A2 amacrine cell', 'B cell', 'B-1 B cell', 'B-1a B cell', ...,
+                           'vein endothelial cell', 'ventricular cardiac muscle cell',
+                           'vip GABAergic cortical interneuron', 'visceromotor neuron']
+5715
+10        unknown
+30        unknown
+45        unknown
+63        unknown
+79        unknown
+           ...   
+199982    unknown
+200093    unknown
+200105    unknown
+200129    unknown
+200191    unknown
+Name: cell_type, Length: 5992, dtype: category
+Categories (698, object): ['A2 amacrine cell', 'B cell', 'B-1 B cell', 'B-1a B cell', ...,
+                           'vein endothelial cell', 'ventricular cardiac muscle cell',
+                           'vip GABAergic cortical interneuron', 'visceromotor neuron']
+5992

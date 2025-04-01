@@ -1,6 +1,9 @@
 from typing import Optional
 
+import time
+
 import pandas as pd
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import Adam, AdamW, Optimizer  # type: ignore
@@ -10,6 +13,8 @@ from cmmvae.modules import CMMVAE
 from cmmvae.constants import REGISTRY_KEYS as RK
 from cmmvae.modules.base.components import GradientReversalFunction
 from cmmvae.config import AutogradConfig
+
+from cmmvae.data.local.species_dataset import NPZDataset
 
 
 class CMMVAEModel(BaseModel):
@@ -58,100 +63,100 @@ class CMMVAEModel(BaseModel):
             adv_criterion = nn.BCELoss(reduction="sum")
 
         self.adversarial_criterion = adv_criterion
+
         self.init_weights()
         self.adv_weight = adv_weight if adv_weight else 1.0
         self.adversarial_method = adversarial_method
         self.autograd_config = autograd_config or AutogradConfig()
 
-    def _adversarial_feedback(
+        self.centroid_mouse
+        self.centroid_human
+        
+        # self.human_dataset = NPZDataset("/mnt/projects/debruinz_project/july2024_census_data/subset",["human_counts_1.npz"], ["human_metadata_1.pkl"] )
+        # self.mouse_dataset = NPZDataset("/mnt/projects/debruinz_project/july2024_census_data/subset",["mouse_counts_1.npz"], ["mouse_metadata_1.pkl"] )
+        
+
+
+    def _liam_grf(
             self,
             adversarial_group,
             hidden_representations: list[torch.Tensor],
             label: torch.Tensor,
             loss_dict: dict,
-            generator: bool,
-            use_grf : bool,
-            batch
     ):
         """
         Calculate the loss for an adversarial group 
         """
+
         assert (
             len(hidden_representations)
             == len(adversarial_group.adversarials)
         )
-
         label = label.to(self.device)
-
-        if generator:
-            assert (use_grf == False)
-            label = 1 - label
-        if not use_grf:
-            label = label.float()
-
         losses = []
 
         for i, (hidden_rep, adv) in enumerate(
             zip(hidden_representations, adversarial_group.adversarials)
         ):
-            # hidden_rep = torch.nn.functional.layer_norm(hidden_rep, hidden_rep.shape)
 
-            if not use_grf and not generator:
-                hidden_rep = hidden_rep.detach()
-            else:
-                hidden_rep = GradientReversalFunction.apply(hidden_rep, 100)
-                
             adv = adv.to(self.device)
 
+            if adversarial_group.conditional != "cell_type":
+                hidden_rep = GradientReversalFunction.apply(hidden_rep, 1)
 
             adv_output = adv(hidden_rep)
-            back_prop_loss = self.adversarial_criterion(adv_output, label)
-            mean_loss = self.adversarial_criterion(adv_output, label)
+
+            back_prop_loss = self.adversarial_criterion(adv_output, label, reduction="mean")
+            mean_loss = self.adversarial_criterion(adv_output, label, reduction="mean")
 
             losses.append(back_prop_loss)
 
-            if not generator:
-                self.zero_adv_optimizers(adversarial_group.conditional)
-                self.manual_backward(back_prop_loss, retain_graph=True)
-                self.step_adv_optimizers()
-
-                loss_dict[RK.ADV_LOSS + adversarial_group.conditional + str(i)] = mean_loss
-            else:
-                loss_dict[RK.ADV_LOSS + "/generator/" + adversarial_group.conditional + str(i)] = mean_loss
+            loss_dict[RK.ADV_LOSS + adversarial_group.conditional + str(i)] = mean_loss
         
         return torch.stack(losses).sum()
 
 
-    def adversarial_feedback(
+    def liam_grf(
         self,
         hidden_representations: list[torch.Tensor],
         labels,
         main_loss_dict: dict,
-        use_grf: bool,
-        batch
     ):
         assert self.module.adversarial_groups
-
         adv_group_losses = []
         for adv_group in self.module.adversarial_groups:
-            _ = self._adversarial_feedback(adv_group, hidden_representations,
-                                              labels[adv_group.conditional], main_loss_dict, generator=False, use_grf=use_grf, batch=batch)
+            loss = self._liam_grf(adv_group, hidden_representations,
+                                              labels[adv_group.conditional], main_loss_dict)
+            adv_group_losses.append(loss)
 
-        if not use_grf:
-            for adv_group in self.module.adversarial_groups:
-                gen_loss = self._adversarial_feedback(adv_group, hidden_representations, 
-                                                labels[adv_group.conditional], main_loss_dict, generator=True, use_grf=False, batch=batch)
-            # gen_loss = (gen_loss * (1 / labels[adv_group.conditional].shape[0]))
-            # self.manual_backward(gen_loss * self.adv_weight, retain_graph=True)
-            adv_group_losses.append(gen_loss)
-            
-        if use_grf:
-            return None
-        else:
-            return torch.stack(adv_group_losses).sum()
+        return torch.stack(adv_group_losses).sum()
+
+    def get_same_cell_type_centroids(self, same_cell_types_dict: dict, expert_id: str) -> None:
+        """
+        Get embeddings for all cell types in the batch and store them in the same_cell_types_dict.
+
+        Args:
+            same_cell_types_dict (dict): Dictionary mapping cell types to their corresponding embeddings.
+            expert_id (str): The ID of the expert for which to get the embeddings.
+        """
+        centroid_dict = {}
+        for cell_type in same_cell_types_dict.keys():
+            raw_data: torch.Tensor = same_cell_types_dict[cell_type]
+            self.module.eval()
+            embeddings = self.module.get_latent_embeddings(
+                raw_data.to(self.device),
+                pd.DataFrame({"cell_type": [cell_type]}),
+                expert_id
+            )
+            self.module.train()
+            centroid = embeddings[RK.Z][0].mean(dim=0, keepdim=True)
+            centroid_dict[cell_type] = centroid
+
+        return centroid_dict
+
 
     def training_step(
-        self, batch: tuple[torch.Tensor, pd.DataFrame, str], batch_idx: int
+        self, batch: tuple[torch.Tensor, pd.DataFrame, str, list[torch.Tensor]], batch_idx: int
     ) -> None:
         x, metadata, expert_id, labels = batch
 
@@ -160,14 +165,47 @@ class CMMVAEModel(BaseModel):
         expert_optimizer = optims["experts"][expert_id]
         vae_optimizer = optims["vae"]
 
+        print(x.shape)
+        exit(1)
+
         if x.layout == torch.sparse_csr:
             x = x.to_dense()
-
 
         # Perform forward pass
         qz, pz, z, xhats, hidden_representations = self.module(
             x=x, metadata=metadata, expert_id=expert_id
         )
+
+        if expert_id == "mouse":
+            start_time = time.time()
+            same_cell_type_dict = self.human_dataset.get_same_cell_types(metadata)
+            elapsed_time = time.time() - start_time
+            print(f"get_same_cell_types (human): {elapsed_time:.4f} seconds", flush=True)
+
+            start_time = time.time()
+            same_cell_type_centroid_dict = self.get_same_cell_type_centroids(same_cell_type_dict, "human")
+            elapsed_time = time.time() - start_time
+            print(f"get_same_cell_type_centroids (human): {elapsed_time:.4f} seconds", flush=True)
+        elif expert_id == "human":
+            start_time = time.time()
+            same_cell_type_dict = self.mouse_dataset.get_same_cell_types(metadata)
+            elapsed_time = time.time() - start_time
+            print(f"get_same_cell_types (mouse): {elapsed_time:.4f} seconds", flush=True)
+
+            start_time = time.time()
+            same_cell_type_centroid_dict = self.get_same_cell_type_centroids(same_cell_type_dict, "mouse")
+            elapsed_time = time.time() - start_time
+            print(f"get_same_cell_type_centroids (mouse): {elapsed_time:.4f} seconds", flush=True)
+        else:
+            raise ValueError(f"Unknown expert_id: {expert_id}")
+
+
+        distance_loss = 0.0
+        # for index in range(hidden_representations[0].shape[0]):
+        #     #calculate distance to centroid for each sample
+        #     cell_type = metadata.iloc[index]["cell_type"]
+        #     distance_loss += torch.norm(hidden_representations[0][index] - same_cell_type_centroid_dict[cell_type], p=2)
+
 
         # Calculate reconstruction loss
         main_loss_dict = self.module.vae.elbo(
@@ -176,46 +214,41 @@ class CMMVAEModel(BaseModel):
         total_loss = main_loss_dict[RK.LOSS]
 
 
+        adv_loss = None
         if self.module.adversarial_groups and self.current_epoch >= 0:
-            adv_loss = self.adversarial_feedback(
+            adv_loss = self.liam_grf(
                 hidden_representations,
                 labels,
                 main_loss_dict,
-                self.adversarial_method == "GRF",
-                batch
             )
 
-            if adv_loss is not None:
-                main_loss_dict[RK.ADV_LOSS] = adv_loss
-                total_loss += adv_loss * self.adv_weight
+        if adv_loss is not None:
+            main_loss_dict[RK.ADV_LOSS] = adv_loss
+            total_loss += adv_loss * self.adv_weight
 
+        main_loss_dict["Distance Loss"] = distance_loss
+        # if self.global_step >= 1000:
+        #     total_loss += distance_loss * 1
 
-        if x.layout == torch.sparse_csr:
-            x = x.to_dense()
-
-
-        main_loss_dict[RK.LOSS] = total_loss 
-
-        self.log_gradient_norms(
-            {"vae": vae_optimizer, f"expert_{expert_id}": expert_optimizer},
-            tag_prefix="grad_norms/main_network/adversarial_gradients",
-        )
-
+        # main_loss_dict["SNNL"] = embedding_snnl
+        # main_loss_dict[RK.LOSS] = total_loss + 100 * embedding_snnl
+        print(self.global_step)
         self.manual_backward(total_loss, retain_graph=True)
+
 
         self.log_gradient_norms(
             {"vae": vae_optimizer, f"expert_{expert_id}": expert_optimizer},
             tag_prefix="grad_norms/main_network/total_gradients",
         )
 
-        vae_optimizer.step()
-        expert_optimizer.step()
-        vae_optimizer.zero_grad()
-        expert_optimizer.zero_grad()
+        if self.module.adversarial_groups:
+            for adv_group in self.module.adversarial_groups:
+                for i, adv in enumerate(adv_group.adversarials):
+                    self.log_gradient_norms(
+                        {f"adversarial_{adv_group.conditional}_{i}": self.get_optimizers()["adversarials" + adv_group.conditional][i]},
+                        tag_prefix="grad_norms/adversarial_networks",
+                    )
 
-
-
-        # Clip gradients for stability
         if self.autograd_config.vae_gradient_clip:
             self.clip_gradients(vae_optimizer, *self.autograd_config.vae_gradient_clip)
 
@@ -224,6 +257,20 @@ class CMMVAEModel(BaseModel):
                 expert_optimizer, *self.autograd_config.expert_gradient_clip
             )
 
+
+        vae_optimizer.step()
+        expert_optimizer.step()
+        if self.module.adversarial_groups:
+            self.step_adv_optimizers()
+
+        vae_optimizer.zero_grad()
+        expert_optimizer.zero_grad()
+        if self.module.adversarial_groups:
+            for adv_group in self.module.adversarial_groups:
+                self.zero_adv_optimizers(adv_group.conditional)
+
+
+        # Clip gradients for stability
         # Update the weights
         self.kl_annealing_fn.step()
 
@@ -378,17 +425,51 @@ def convert_to_flat_list_and_map(d: dict, flat_list: Optional[list] = None) -> d
 
     return map_dict
 
-def lsgan_loss(predictions, target_value):
-    return 0.5 * torch.mean((predictions - target_value) ** 2)
-
-
-def apply_spectral_norm(model):
-    for name, module in model.named_children():
-        if isinstance(module, torch.nn.Linear):
-            setattr(model, name, torch.nn.utils.parametrizations.spectral_norm(module))
-        elif len(list(module.children())) > 0:  # Recursively apply to submodules
-            apply_spectral_norm(module)
-
 def cross_entropy_one_hot_labels(predictions, labels, reduction="sum"):
     integer_labels = torch.argmax(labels, dim=1)
     return torch.nn.functional.cross_entropy(predictions, integer_labels, reduction=reduction)
+    
+def pairwise_cos_distance(A, B):
+    query_embeddings = torch.nn.functional.normalize(A, dim=1)
+    key_embeddings = torch.nn.functional.normalize(B, dim=1)
+    distances = 1 - torch.matmul(query_embeddings, key_embeddings.T)
+    return distances
+
+def snnl(embeddings, labels, temperature=1.0):
+    """
+    Args:
+        embeddings: Batched embeddings to compute the SNNL.
+        labels: Labels of embeddings.
+    """
+
+    #convert one hot labels to integer labels
+    labels = torch.argmax(labels, dim=1)
+
+    batch_size = embeddings.shape[0]
+    eps = 1e-9
+    
+    pairwise_dist = pairwise_cos_distance(embeddings, embeddings)
+    pairwise_dist = pairwise_dist / temperature
+    negexpd = torch.exp(-pairwise_dist)
+
+    # creating mask to sample same class neighboorhood
+    pairs_y = torch.broadcast_to(labels, (batch_size, batch_size))
+    mask = pairs_y == torch.transpose(pairs_y, 0, 1)
+    mask = mask.float()
+
+    # creating mask to exclude diagonal elements
+    ones = torch.ones([batch_size, batch_size], dtype=torch.float32).cuda()
+    dmask = ones - torch.eye(batch_size, dtype=torch.float32).cuda()
+
+    # all class neighborhood
+    alcn = torch.sum(torch.multiply(negexpd, dmask), dim=1)
+    # same class neighborhood
+    sacn = torch.sum(torch.multiply(negexpd, mask), dim=1)
+
+    # adding eps for numerical stability
+    # in case of a class having a single occurrence in batch
+    # the quantity inside log would have been 0
+    loss = -torch.log((sacn+eps)/alcn).mean()
+    return loss
+
+
