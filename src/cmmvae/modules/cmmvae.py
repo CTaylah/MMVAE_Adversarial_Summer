@@ -7,6 +7,7 @@ from torch import nn
 
 from cmmvae.modules.base import Experts, FCBlock, FCBlockConfig, AdversarialsGroup
 from cmmvae.modules import CLVAE
+from cmmvae.modules.base import ConditionalLayers
 from cmmvae.constants import REGISTRY_KEYS as RK
 
 
@@ -46,6 +47,15 @@ class CMMVAE(nn.Module):
         self.vae = vae
         self.experts = experts
         self.adversarial_groups = None
+
+        conditional_config = FCBlockConfig([512])
+
+        self.cell_type_conditionals = ConditionalLayers(
+            directory="/mnt/projects/debruinz_project/3m_july_expressions",
+            conditionals=["cell_type", "species"],
+            fc_block_config=conditional_config,
+            selection_order=["cell_type", "species"],
+        )
 
         if adversarial_groups:
             if not isinstance(adversarial_groups, list):
@@ -87,7 +97,7 @@ class CMMVAE(nn.Module):
         """
         # Encode the input using the specified expert network
         shared_x = self.experts[expert_id].encode(x)
-
+        shared_x = self.cell_type_conditionals(shared_x, metadata, expert_id)
         # Pass through the VAE
         qz, pz, z, shared_xhat, hidden_representations = self.vae(
             shared_x, metadata, species=expert_id

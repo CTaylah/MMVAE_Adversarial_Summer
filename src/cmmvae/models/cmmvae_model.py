@@ -69,12 +69,6 @@ class CMMVAEModel(BaseModel):
         self.adversarial_method = adversarial_method
         self.autograd_config = autograd_config or AutogradConfig()
 
-        self.centroid_mouse
-        self.centroid_human
-        
-        # self.human_dataset = NPZDataset("/mnt/projects/debruinz_project/july2024_census_data/subset",["human_counts_1.npz"], ["human_metadata_1.pkl"] )
-        # self.mouse_dataset = NPZDataset("/mnt/projects/debruinz_project/july2024_census_data/subset",["mouse_counts_1.npz"], ["mouse_metadata_1.pkl"] )
-        
 
 
     def _liam_grf(
@@ -165,9 +159,6 @@ class CMMVAEModel(BaseModel):
         expert_optimizer = optims["experts"][expert_id]
         vae_optimizer = optims["vae"]
 
-        print(x.shape)
-        exit(1)
-
         if x.layout == torch.sparse_csr:
             x = x.to_dense()
 
@@ -176,43 +167,11 @@ class CMMVAEModel(BaseModel):
             x=x, metadata=metadata, expert_id=expert_id
         )
 
-        if expert_id == "mouse":
-            start_time = time.time()
-            same_cell_type_dict = self.human_dataset.get_same_cell_types(metadata)
-            elapsed_time = time.time() - start_time
-            print(f"get_same_cell_types (human): {elapsed_time:.4f} seconds", flush=True)
-
-            start_time = time.time()
-            same_cell_type_centroid_dict = self.get_same_cell_type_centroids(same_cell_type_dict, "human")
-            elapsed_time = time.time() - start_time
-            print(f"get_same_cell_type_centroids (human): {elapsed_time:.4f} seconds", flush=True)
-        elif expert_id == "human":
-            start_time = time.time()
-            same_cell_type_dict = self.mouse_dataset.get_same_cell_types(metadata)
-            elapsed_time = time.time() - start_time
-            print(f"get_same_cell_types (mouse): {elapsed_time:.4f} seconds", flush=True)
-
-            start_time = time.time()
-            same_cell_type_centroid_dict = self.get_same_cell_type_centroids(same_cell_type_dict, "mouse")
-            elapsed_time = time.time() - start_time
-            print(f"get_same_cell_type_centroids (mouse): {elapsed_time:.4f} seconds", flush=True)
-        else:
-            raise ValueError(f"Unknown expert_id: {expert_id}")
-
-
-        distance_loss = 0.0
-        # for index in range(hidden_representations[0].shape[0]):
-        #     #calculate distance to centroid for each sample
-        #     cell_type = metadata.iloc[index]["cell_type"]
-        #     distance_loss += torch.norm(hidden_representations[0][index] - same_cell_type_centroid_dict[cell_type], p=2)
-
-
         # Calculate reconstruction loss
         main_loss_dict = self.module.vae.elbo(
             qz, pz, x, xhats[expert_id], self.kl_annealing_fn.kl_weight
         )
         total_loss = main_loss_dict[RK.LOSS]
-
 
         adv_loss = None
         if self.module.adversarial_groups and self.current_epoch >= 0:
@@ -226,15 +185,12 @@ class CMMVAEModel(BaseModel):
             main_loss_dict[RK.ADV_LOSS] = adv_loss
             total_loss += adv_loss * self.adv_weight
 
-        main_loss_dict["Distance Loss"] = distance_loss
-        # if self.global_step >= 1000:
-        #     total_loss += distance_loss * 1
+        snnl_loss = snnl(hidden_representations[0], labels["cell_type"])
 
-        # main_loss_dict["SNNL"] = embedding_snnl
-        # main_loss_dict[RK.LOSS] = total_loss + 100 * embedding_snnl
-        print(self.global_step)
+        main_loss_dict["SNNL"] = snnl_loss
+
+        total_loss += snnl_loss * 1000
         self.manual_backward(total_loss, retain_graph=True)
-
 
         self.log_gradient_norms(
             {"vae": vae_optimizer, f"expert_{expert_id}": expert_optimizer},
@@ -270,8 +226,6 @@ class CMMVAEModel(BaseModel):
                 self.zero_adv_optimizers(adv_group.conditional)
 
 
-        # Clip gradients for stability
-        # Update the weights
         self.kl_annealing_fn.step()
 
         # Log the loss

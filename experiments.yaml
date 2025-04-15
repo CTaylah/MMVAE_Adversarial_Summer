@@ -1,9 +1,9 @@
 # experiments.yaml
-experiment_name: liam_stuff_2
-run_name: distance_loss_10
+experiment_name: cell_type
+run_name: cell_type_conditionals
 train_command:
   fit:
-    model: configs/liam_based/liam_clone.yaml
+    model: configs/liam_based/liam_clone_conditionals_no_adv.yaml
     trainer:
       track:
         # test: configs/trainer/config.test.yaml
