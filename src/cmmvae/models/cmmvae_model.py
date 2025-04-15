@@ -64,6 +64,11 @@ class CMMVAEModel(BaseModel):
 
         self.adversarial_criterion = adv_criterion
 
+        self.ema_centroid_human = None
+        self.ema_centroid_mouse = None
+        self.ema_centroid_human_prev = None
+        self.ema_centroid_mouse_prev = None
+
         self.init_weights()
         self.adv_weight = adv_weight if adv_weight else 1.0
         self.adversarial_method = adversarial_method
@@ -149,6 +154,42 @@ class CMMVAEModel(BaseModel):
         return centroid_dict
 
 
+    def compute_centroids(self, embeddings: torch.Tensor, labels: torch.Tensor, epsilon=1e-9) -> dict:
+        float_labels = labels.float()
+        numerator = torch.matmul(float_labels.T, embeddings)
+        #divide by the number of samples in each class
+        denominator = torch.sum(labels, dim=0, keepdim=True).T + epsilon
+        return numerator / denominator
+
+
+    def update_ema_centroids(self, batch_centroid, expert_id, beta=0.9):
+        if expert_id == "human":
+            if self.ema_centroid_human is None:
+                self.ema_centroid_human = batch_centroid
+            else:
+                # self.ema_centroid_human_prev = self.ema_centroid_human
+                self.ema_centroid_human = beta * self.ema_centroid_human + (1 - beta) * batch_centroid
+        elif expert_id == "mouse":
+            if self.ema_centroid_mouse is None:
+                self.ema_centroid_mouse = batch_centroid
+            else:
+                # self.ema_centroid_mouse_prev = self.ema_centroid_mouse
+                self.ema_centroid_mouse = beta * self.ema_centroid_mouse + (1 - beta) * batch_centroid
+        else:
+            raise ValueError("Unexpected expert_id given")
+    
+    def alignment_loss(self, expert_id):
+        if self.ema_centroid_human is None or self.ema_centroid_mouse is None:
+            return 0
+        
+        #detach the centroids of the expert not being used
+        if expert_id == "human":
+            self.ema_centroid_mouse = self.ema_centroid_mouse.clone()
+        elif expert_id == "mouse":
+            self.ema_centroid_human = self.ema_centroid_human.clone()
+        # dividing loss by the number of samples in each class
+        return torch.norm(self.ema_centroid_human - self.ema_centroid_mouse, p='fro') ** 2 / self.ema_centroid_human.shape[0]
+
     def training_step(
         self, batch: tuple[torch.Tensor, pd.DataFrame, str, list[torch.Tensor]], batch_idx: int
     ) -> None:
@@ -185,11 +226,20 @@ class CMMVAEModel(BaseModel):
             main_loss_dict[RK.ADV_LOSS] = adv_loss
             total_loss += adv_loss * self.adv_weight
 
-        snnl_loss = snnl(hidden_representations[0], labels["cell_type"])
+        # snnl_loss = snnl(hidden_representations[0], labels["cell_type"])
+        # main_loss_dict["SNNL"] = snnl_loss
+        # total_loss += snnl_loss * 1000
 
-        main_loss_dict["SNNL"] = snnl_loss
 
-        total_loss += snnl_loss * 1000
+        centroids = self.compute_centroids(
+            hidden_representations[0], labels["cell_type"]
+        )
+        self.update_ema_centroids(centroids, expert_id)
+        alignment_loss = self.alignment_loss(expert_id)
+        main_loss_dict["alignment_loss"] = alignment_loss
+        total_loss += alignment_loss * 1000
+
+
         self.manual_backward(total_loss, retain_graph=True)
 
         self.log_gradient_norms(
