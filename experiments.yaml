@@ -1,8 +1,9 @@
 # experiments.yaml
-experiment_name: cell_type
-run_name: cell_type_conditionals
+experiment_name: embedding
+run_name: Embedding_Output_euclidean_w0.30
 train_command:
   fit:
+    # model: configs/model/3_species.yaml
     model: configs/liam_based/liam_clone_conditionals_no_adv.yaml
     trainer:
       track:
@@ -14,8 +15,6 @@ train_command:
         # server: configs/data/server.yaml
 
 categories:
-- 'donor_id'
-- 'assay'
 - 'dataset_id'
 - 'cell_type'
 - 'species'

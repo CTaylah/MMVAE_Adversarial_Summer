@@ -4,6 +4,7 @@ import time
 
 import pandas as pd
 import numpy as np
+import random
 import torch
 import torch.nn as nn
 from torch.optim import Adam, AdamW, Optimizer  # type: ignore
@@ -14,7 +15,10 @@ from cmmvae.constants import REGISTRY_KEYS as RK
 from cmmvae.modules.base.components import GradientReversalFunction
 from cmmvae.config import AutogradConfig
 
-from cmmvae.data.local.species_dataset import NPZDataset
+
+from cmmvae.data.encoding_dicts import assay_dict
+from cmmvae.data.encoding_dicts import dataset_id_dict
+from cmmvae.data.encoding_dicts import donor_id_dict
 
 
 class CMMVAEModel(BaseModel):
@@ -45,7 +49,8 @@ class CMMVAEModel(BaseModel):
     def __init__(
         self,
         module: CMMVAE,
-        adv_weight=None,
+        adv_weight,
+        cycle_weight,
         adversarial_method="",
         autograd_config: Optional[AutogradConfig] = None,
         *args,
@@ -64,16 +69,11 @@ class CMMVAEModel(BaseModel):
 
         self.adversarial_criterion = adv_criterion
 
-        self.ema_centroid_human = None
-        self.ema_centroid_mouse = None
-        self.ema_centroid_human_prev = None
-        self.ema_centroid_mouse_prev = None
-
         self.init_weights()
-        self.adv_weight = adv_weight if adv_weight else 1.0
+        self.adv_weight = adv_weight
+        self.cycle_weight = cycle_weight
         self.adversarial_method = adversarial_method
         self.autograd_config = autograd_config or AutogradConfig()
-
 
 
     def _liam_grf(
@@ -162,38 +162,68 @@ class CMMVAEModel(BaseModel):
         return numerator / denominator
 
 
-    def update_ema_centroids(self, batch_centroid, expert_id, beta=0.9):
-        if expert_id == "human":
-            if self.ema_centroid_human is None:
-                self.ema_centroid_human = batch_centroid
-            else:
-                # self.ema_centroid_human_prev = self.ema_centroid_human
-                self.ema_centroid_human = beta * self.ema_centroid_human + (1 - beta) * batch_centroid
-        elif expert_id == "mouse":
-            if self.ema_centroid_mouse is None:
-                self.ema_centroid_mouse = batch_centroid
-            else:
-                # self.ema_centroid_mouse_prev = self.ema_centroid_mouse
-                self.ema_centroid_mouse = beta * self.ema_centroid_mouse + (1 - beta) * batch_centroid
+    def update_ema_centroids(self, batch_centroid, beta=0.9):
+        if self.ema_centroids is None:
+            self.ema_centroids = batch_centroid
         else:
-            raise ValueError("Unexpected expert_id given")
+            self.ema_centroids = (beta * self.ema_centroids + (1 - beta) * batch_centroid).detach()
+
     
-    def alignment_loss(self, expert_id):
-        if self.ema_centroid_human is None or self.ema_centroid_mouse is None:
+    def alignment_loss(self, embeddings: torch.Tensor, labels: torch.Tensor) -> float:
+        if self.ema_centroids is None:
             return 0
+
+        # Convert one-hot encoded labels to integer labels
+
+        # Gather the centroids corresponding to each sample's label
+        selected_centroids = torch.matmul(labels.float(), self.ema_centroids)
+        selected_centroids = selected_centroids.clone().detach()
+
+        # Calculate the distance between embeddings and their corresponding centroids
+        distances = torch.sum((embeddings - selected_centroids)**2, dim=1)
+      
+        # Return the mean distance as the alignment loss
+        return distances.mean()
+
+    def cyclic_condition_loss(self, data: torch.Tensor, metadata: pd.DataFrame, expert_id) -> float:
+        # original_assays = metadata["assay"]
+        # original_donor_ids = metadata["donor_id"]
+        original_dataset_ids = metadata["dataset_id"]
+
+        # change metadata to random assay, donor_id, dataset_id
+        # random_assays = np.random.choice(list(assay_dict.assay.keys()), size=original_assays.shape[0])
+        # random_donor_ids = np.random.choice(list(donor_id_dict.donor_id.keys()), size=original_donor_ids.shape[0])
+        random_dataset_ids = np.random.choice(list(dataset_id_dict.dataset_id.keys()), size=original_dataset_ids.shape[0])
+
+        # #copy the original metadata
+        random_metadata = metadata.copy()
+        # random_metadata["assay"] = random_assays
+        # random_metadata["donor_id"] = random_donor_ids
+        random_metadata["dataset_id"] = random_dataset_ids
+
+        #Feedforward
+        _, _, _, reconstructed_randomized_conditions, _ = self.module(
+            x=data, metadata=metadata, expert_id=expert_id, cross_generate=False
+        )
+
+        _,_, _, reconstructed_original_conditions, _ = self.module(
+            x=reconstructed_randomized_conditions[expert_id], metadata=metadata, expert_id=expert_id, cross_generate=False
+        )
         
-        #detach the centroids of the expert not being used
-        if expert_id == "human":
-            self.ema_centroid_mouse = self.ema_centroid_mouse.clone()
-        elif expert_id == "mouse":
-            self.ema_centroid_human = self.ema_centroid_human.clone()
-        # dividing loss by the number of samples in each class
-        return torch.norm(self.ema_centroid_human - self.ema_centroid_mouse, p='fro') ** 2 / self.ema_centroid_human.shape[0]
+        loss = torch.nn.functional.mse_loss(
+            reconstructed_original_conditions[expert_id], reconstructed_randomized_conditions[expert_id], reduction="sum"
+        )
+
+        return loss
+
 
     def training_step(
         self, batch: tuple[torch.Tensor, pd.DataFrame, str, list[torch.Tensor]], batch_idx: int
     ) -> None:
-        x, metadata, expert_id, labels = batch
+        # x, metadata, expert_id, labels = batch
+        x, metadata, expert_id, = batch
+
+        all_expert_ids = ["mouse", "human"]
 
         # Get optimizers
         optims = self.get_optimizers()
@@ -205,7 +235,7 @@ class CMMVAEModel(BaseModel):
 
         # Perform forward pass
         qz, pz, z, xhats, hidden_representations = self.module(
-            x=x, metadata=metadata, expert_id=expert_id
+            x=x, metadata=metadata, expert_id=expert_id, cross_generate=True
         )
 
         # Calculate reconstruction loss
@@ -214,33 +244,84 @@ class CMMVAEModel(BaseModel):
         )
         total_loss = main_loss_dict[RK.LOSS]
 
-        adv_loss = None
-        if self.module.adversarial_groups and self.current_epoch >= 0:
-            adv_loss = self.liam_grf(
-                hidden_representations,
-                labels,
-                main_loss_dict,
-            )
+        # adv_loss = None
+        # if self.module.adversarial_groups and self.current_epoch >= 0:
+        #     adv_loss = self.liam_grf(
+        #         hidden_representations,
+        #         labels,
+        #         main_loss_dict,
+        #     )
 
-        if adv_loss is not None:
-            main_loss_dict[RK.ADV_LOSS] = adv_loss
-            total_loss += adv_loss * self.adv_weight
+        # if adv_loss is not None:
+        #     main_loss_dict[RK.ADV_LOSS] = adv_loss
+        #     total_loss += adv_loss * self.adv_weight
 
-        # snnl_loss = snnl(hidden_representations[0], labels["cell_type"])
-        # main_loss_dict["SNNL"] = snnl_loss
-        # total_loss += snnl_loss * 1000
+        # centroids = self.compute_centroids(
+        #     hidden_representations[0], labels["cell_type"]
+        # )
 
+        # self.update_ema_centroids(centroids)
+        # alignment_loss = self.alignment_loss(hidden_representations[0], labels["cell_type"])
+        # main_loss_dict["alignment_loss"] = alignment_loss
 
-        centroids = self.compute_centroids(
-            hidden_representations[0], labels["cell_type"]
+        self.log_gradient_norms(
+            {"vae": vae_optimizer, f"expert_{expert_id}": expert_optimizer},
+            tag_prefix="grad_norms/main_network/before_cyclic_loss",
         )
-        self.update_ema_centroids(centroids, expert_id)
-        alignment_loss = self.alignment_loss(expert_id)
-        main_loss_dict["alignment_loss"] = alignment_loss
-        total_loss += alignment_loss * 1000
 
 
-        self.manual_backward(total_loss, retain_graph=True)
+        cross_id = random.choice(all_expert_ids)
+        cross_batch = xhats[cross_id]
+
+        #genereate the original domain
+        qz, pz, z, cyclic_xhats, cross_hidden_representations = self.module(
+            x=cross_batch, metadata=metadata, expert_id=cross_id, cross_generate=True
+        )
+
+        embedding = hidden_representations[0]
+        cross_embedding = cross_hidden_representations[0]
+
+        # embedding_cross_loss = torch.nn.functional.mse_loss(
+        #     embedding, cross_embedding, reduction="sum"
+        # )
+        # embedding_cross_loss_mean = torch.nn.functional.mse_loss(
+        #     embedding, cross_embedding, reduction="mean"
+        # )
+
+        same_modality_sample = cyclic_xhats[expert_id]
+
+        #calculate loss between original reconstruction and cross generated reconstruction
+        # cyclic_loss = torch.nn.functional.mse_loss(
+        #     same_modality_sample, xhats[expert_id], reduction="sum"
+        # )
+
+        # cyclic_loss_mean = torch.nn.functional.mse_loss(
+        #     same_modality_sample, xhats[expert_id], reduction="mean"
+        # )
+
+        cyclic_loss = torch.cdist(same_modality_sample, xhats[expert_id], p=2).sum()
+        embedding_cross_loss = torch.cdist(embedding, cross_embedding, p=2).sum()
+
+        # main_loss_dict["embedding_cross_loss_mean"] = embedding_cross_loss_mean
+        main_loss_dict["embedding_cross_loss"] = embedding_cross_loss
+        main_loss_dict["cyclic_loss"] = cyclic_loss
+        main_loss_dict["cyclic_weight"] = self.cycle_weight
+        main_loss_dict["adv_weight"] = self.adv_weight
+
+        if self.current_epoch >= 1:
+            total_loss += cyclic_loss * self.cycle_weight + embedding_cross_loss * self.cycle_weight
+
+        # if self.current_epoch >= 0:
+        #     cyclic_condition_loss = self.cyclic_condition_loss(
+        #         xhats[expert_id], metadata, expert_id
+        #     )
+        #     total_loss += cyclic_condition_loss * self.cycle_weight
+        #     main_loss_dict["cyclic_condition_loss"] = cyclic_condition_loss
+
+        self.manual_backward(
+            total_loss, retain_graph=True
+        )
+
 
         self.log_gradient_norms(
             {"vae": vae_optimizer, f"expert_{expert_id}": expert_optimizer},
@@ -275,7 +356,6 @@ class CMMVAEModel(BaseModel):
             for adv_group in self.module.adversarial_groups:
                 self.zero_adv_optimizers(adv_group.conditional)
 
-
         self.kl_annealing_fn.step()
 
         # Log the loss
@@ -290,7 +370,7 @@ class CMMVAEModel(BaseModel):
         Args:
             batch (tuple): Batch of data containing inputs, metadata, and expert ID.
         """
-        x, metadata, expert_id, _ = batch
+        x, metadata, expert_id = batch
         # expert_label = self.module.experts.labels[expert_id]
 
         # Perform forward pass and compute the loss
@@ -324,7 +404,7 @@ class CMMVAEModel(BaseModel):
             batch (tuple): Batch of data containing inputs, metadata, and expert ID.
             batch_idx (int): Index of the batch.
         """
-        x, metadata, species, _ = batch
+        x, metadata, species  = batch
         embeddings = self.module.get_latent_embeddings(x, metadata, species)
         return embeddings
         # self.save_predictions(embeddings, batch_idx)
@@ -475,5 +555,3 @@ def snnl(embeddings, labels, temperature=1.0):
     # the quantity inside log would have been 0
     loss = -torch.log((sacn+eps)/alcn).mean()
     return loss
-
-

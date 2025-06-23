@@ -1,3 +1,5 @@
+import random
+
 dataset_id = { 
 "f7ec7bd5-04ab-453b-a8a7-c9d14812affb": 0, 
 "07b1d7c8-5c2e-42f7-9246-26f746cd6013": 1, 
@@ -396,3 +398,9 @@ dataset_id = {
 "2f6a20f1-173d-4b8d-860b-c47ffea120fa": 394, 
 "e5b1115b-a486-49bb-bda3-8261822836e0": 395, 
 } 
+
+def get_random_dataset_id():
+    """
+    Returns a random dataset ID from the predefined list.
+    """
+    return random.choice(list(dataset_id.keys()))

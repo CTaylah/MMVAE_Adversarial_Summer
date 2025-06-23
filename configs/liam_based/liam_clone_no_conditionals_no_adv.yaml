@@ -8,7 +8,8 @@ init_args:
       warmup_steps: 1e3
       climax_steps: 6e3
   record_gradients: false
-  adv_weight: 10
+  adv_weight: 20
+  cycle_weight: 5
   adversarial_method: "GRF"
   gradient_record_cap: 20
   autograd_config:
@@ -45,7 +46,7 @@ init_args:
               use_layer_norm: True
               activation_fn: torch.nn.ReLU
               return_hidden: 
-              - True
+              - False
           decoder_config:
             class_path: cmmvae.modules.base.FCBlockConfig
             init_args:
@@ -54,28 +55,28 @@ init_args:
               use_batch_norm: False
               use_layer_norm: True
               activation_fn: torch.nn.ReLU
-          # conditional_config:
-          #   class_path: cmmvae.modules.base.FCBlockConfig
-          #   init_args:
-          #     layers: [40]
-          #     dropout_rate: 0.0
-          #     use_batch_norm: False
-          #     use_layer_norm: True
-          #     activation_fn: null
-          # concat_config:
-          #   class_path: cmmvae.modules.base.ConcatBlockConfig
-          #   init_args:
-          #     dropout_rate: 0.0
-          #     use_batch_norm: False
-          #     use_layer_norm: True
-          #     activation_fn: torch.nn.ReLU
-          # conditionals:
-          # - assay
-          # - donor_id
-          # - species
-          # - tissue
-          # selection_order:
-          # - parallel
+          conditional_config:
+            class_path: cmmvae.modules.base.FCBlockConfig
+            init_args:
+              layers: [40]
+              dropout_rate: 0.0
+              use_batch_norm: False
+              use_layer_norm: True
+              activation_fn: null
+          concat_config:
+            class_path: cmmvae.modules.base.ConcatBlockConfig
+            init_args:
+              dropout_rate: 0.0
+              use_batch_norm: False
+              use_layer_norm: True
+              activation_fn: torch.nn.ReLU
+          conditionals:
+          - assay
+          - donor_id
+          - species
+          selection_order:
+          - assay
+          - donor_id
       experts:
         class_path: cmmvae.modules.base.Experts
         init_args:
@@ -121,11 +122,11 @@ init_args:
       adversarial_groups:
         # - class_path: cmmvae.modules.base.AdversarialsGroup
         #   init_args:
-        #     conditional: species
+        #     conditional: assay
         #     adversarials:
         #     - class_path: cmmvae.modules.base.FCBlockConfig
         #       init_args:
-        #         layers: [ 40, 32, 2 ]
+        #         layers: [ 40, 32, 26 ]
         #         dropout_rate: 0.0
         #         use_batch_norm: False
         #         use_layer_norm: 
@@ -136,11 +137,26 @@ init_args:
         #         - null
         # - class_path: cmmvae.modules.base.AdversarialsGroup
         #   init_args:
-        #     conditional: assay
+        #     conditional: dataset_id
         #     adversarials:
         #     - class_path: cmmvae.modules.base.FCBlockConfig
         #       init_args:
-        #         layers: [ 40, 32, 26 ]
+        #         layers: [ 40, 32, 396 ]
+        #         dropout_rate: 0.0
+        #         use_batch_norm: False
+        #         use_layer_norm: 
+        #         - True
+        #         - False
+        #         activation_fn: 
+        #         - torch.nn.ReLU
+        #         - null
+        # - class_path: cmmvae.modules.base.AdversarialsGroup
+        #   init_args:
+        #     conditional: donor_id
+        #     adversarials:
+        #     - class_path: cmmvae.modules.base.FCBlockConfig
+        #       init_args:
+        #         layers: [ 40, 32, 7154 ]
         #         dropout_rate: 0.0
         #         use_batch_norm: False
         #         use_layer_norm: 

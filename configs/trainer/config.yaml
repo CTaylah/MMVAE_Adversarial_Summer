@@ -29,7 +29,7 @@ callbacks:
     auto_insert_metric_name: true
     every_n_train_steps: null
     train_time_interval: null
-    every_n_epochs: null
+    every_n_epochs: 3
     save_on_train_epoch_end: false
     enable_version_counter: true
 - class_path: lightning.pytorch.callbacks.EarlyStopping

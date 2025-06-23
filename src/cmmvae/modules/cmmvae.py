@@ -48,14 +48,7 @@ class CMMVAE(nn.Module):
         self.experts = experts
         self.adversarial_groups = None
 
-        conditional_config = FCBlockConfig([512])
-
-        self.cell_type_conditionals = ConditionalLayers(
-            directory="/mnt/projects/debruinz_project/3m_july_expressions",
-            conditionals=["cell_type", "species"],
-            fc_block_config=conditional_config,
-            selection_order=["cell_type", "species"],
-        )
+        # conditional_config = FCBlockConfig([512])
 
         if adversarial_groups:
             if not isinstance(adversarial_groups, list):
@@ -97,7 +90,6 @@ class CMMVAE(nn.Module):
         """
         # Encode the input using the specified expert network
         shared_x = self.experts[expert_id].encode(x)
-        shared_x = self.cell_type_conditionals(shared_x, metadata, expert_id)
         # Pass through the VAE
         qz, pz, z, shared_xhat, hidden_representations = self.vae(
             shared_x, metadata, species=expert_id
@@ -107,15 +99,6 @@ class CMMVAE(nn.Module):
 
         # Perform cross-generation if enabled
         if cross_generate:
-            if self.training:
-                warnings.warn(
-                    """
-                    CMMVAE is cross-generating during training,
-                    which could cause gradients to be
-                    accumulated for cross-generation passes
-                    """
-                )
-
             # Decode using all avaialble experts
             for expert in self.experts:
                 xhats[expert] = self.experts[expert].decode(shared_xhat)

@@ -5,6 +5,7 @@ import random
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.distributions import Normal
 
 
@@ -107,6 +108,7 @@ class FCBlockConfig:
                     Defaults to False.
         """
         super().__init__()
+        self.layers_list = layers
 
         # Assert layers is a list
         try:
@@ -382,6 +384,7 @@ class ConditionalLayer(nn.Module):
         Returns:
             torch.Tensor: Output tensor of the same shape as the input.
         """
+
         if condition:
             condition = self.format_condition_key(condition)
             return self.conditions[condition](x)
@@ -411,6 +414,7 @@ class ConditionalLayer(nn.Module):
             xhat.index_copy_(0, indices_tensor, x_cond_processed)
 
         return xhat
+
 
 
 def _is_valid_file(fname, batch_key):
@@ -533,7 +537,7 @@ class ConditionalLayers(nn.Module):
                 Dictionary of batch_keys and paths to csv's
                     with their respective unique conditions.
             fc_block_config (cmmvae.modules.base.FCBlockConfig):
-                Configuration for all ConditionLayer's.
+                Configuration for all ConditionLayers.
             selection_order (Optional[list[str]]:
                 Optional list of batch_keys to order forward pass
                     on respective ConditionLayer's.
@@ -545,15 +549,19 @@ class ConditionalLayers(nn.Module):
                 f"Could not intialize the conditional layers either due to the directory not existing yet\n{directory}"
             )
         # Prevent parsing the species conditional as no conditional layer is needed
-        conditionals.remove("species")
+        if "species" in conditionals:
+            conditionals.remove("species")
         conditional_paths = collect_species_files(directory, conditionals)
-        conditionals.append("species")
+        if "species" in conditionals:
+            conditionals.append("species")
 
         self.shared_conditionals = list(conditional_paths["shared"].keys())
 
         self.shuffle_selection_order = False
         self.is_parallel = selection_order[0] == "parallel"
-        if not selection_order or self.is_parallel:
+        self.is_add = selection_order[0] == "add"
+
+        if not selection_order or self.is_parallel or self.is_add:
             selection_order = conditionals
             self.shuffle_selection_order = True
 
@@ -618,6 +626,7 @@ class ConditionalLayers(nn.Module):
 
         self.layers = nn.ModuleDict(layer_dict)
         self.selection_order = selection_order
+        self.num_conditions = len(self.selection_order)
 
     def forward(
         self, x: torch.Tensor, metadata: pd.DataFrame, species: Optional[str] = None
@@ -642,34 +651,200 @@ class ConditionalLayers(nn.Module):
         else:
             order = self.selection_order
 
-        xs = []
-        # Apply each layer in the determined order
-        for conditional in order:
-            layer = self.layers[conditional]
+        if self.is_parallel:
+            outputs = []
+            for batch_key in self.selection_order:
+                layer = self.layers[batch_key]
+                if isinstance(layer, nn.ModuleDict):
+                    if species is None:
+                        raise ValueError(f"Species must be specified for batch_key '{batch_key}'.")
+                    layer = layer[species]
+                outputs.append(layer(x, metadata))
+            return torch.cat(outputs, dim=-1)  # Concatenate outputs along feature dimension
+
+        # Handle add mode (sum outputs from each layer)
+        if self.is_add:
+            output = torch.zeros_like(x)
+            for batch_key in self.selection_order:
+                layer = self.layers[batch_key]
+                if isinstance(layer, nn.ModuleDict):
+                    if species is None:
+                        raise ValueError(f"Species must be specified for batch_key '{batch_key}'.")
+                    layer = layer[species]
+                output += (layer(x, metadata) / self.num_conditions) 
+            return output  # Apply layer normalization
+
+        # Sequential mode (default): pass through layers one after another
+        out = x
+        for batch_key in self.selection_order:
+            layer = self.layers[batch_key]
             if isinstance(layer, nn.ModuleDict):
                 if species is None:
-                    raise RuntimeError(
-                        f"'species' must be set to access non-shared conditional layer for batch_key '{conditional}'"
-                    )
+                    raise ValueError(f"Species must be specified for batch_key '{batch_key}'.")
                 layer = layer[species]
-            if isinstance(layer, ConditionalLayer):
-                if self.is_parallel:
-                    xs.append(layer(x, metadata))
-                else:
-                    x = layer(x, metadata)
-            else:
-                if self.is_parallel:
-                    xs.append(layer(x))
-                else:
-                    x = layer(x)
-        if xs:
-            x = torch.cat(xs, dim=1)
-        return x
+            out = layer(out, metadata)
+        return out
 
 
 def _identity(x):
     return x
 
+class TiedConditionalLayer(nn.Module):
+    """
+    Conditional layer that uses a tied decoder for the conditional
+        representation.
+
+    """
+
+    def __init__(self, conditional_layer: ConditionalLayer):
+        """Initialize the tied conditional layer."""
+        super().__init__()
+        self.original_layer = conditional_layer
+        self.batch_key = conditional_layer.batch_key
+        self.conditions = nn.ModuleDict(
+            {
+                condition: TiedDecoder(fc_block)
+                for condition, fc_block in conditional_layer.conditions.items()
+            }
+        )
+
+    def forward(self, x: torch.Tensor, metadata: pd.DataFrame, condition: Optional[str] = None):
+        """
+        Forward pass through the tied conditional layer.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+            metadata (pd.DataFrame): Metadata dataframe with corresponding batch_key.
+            condition (str, optional): If provided, all samples are passed through this condition.
+
+        Returns:
+            torch.Tensor: Output tensor of the same shape as the input.
+        """
+        if condition:
+            condition = self.original_layer.format_condition_key(condition)
+            return self.conditions[condition](x)
+
+        device = x.device
+
+        # Extract condition keys for the batch
+        condition_keys = (
+            metadata[self.batch_key]
+            .astype(str)
+            .apply(lambda c: c.replace(".", "_"))
+            .tolist()
+        )
+
+        # Map conditions to sample indices
+        condition_to_indices = {}
+        for idx, cond_key in enumerate(condition_keys):
+            condition_to_indices.setdefault(cond_key, []).append(idx)
+
+        xhat = torch.empty_like(x)
+
+        # Process samples for each condition in a batch
+        for cond_key, indices in condition_to_indices.items():
+            indices_tensor = torch.tensor(indices, device=device)
+            x_cond = x.index_select(0, indices_tensor)
+            x_cond_processed = self.conditions[cond_key](x_cond)
+            xhat.index_copy_(0, indices_tensor, x_cond_processed)
+        return xhat
+        
+class TiedConditionalLayers(nn.Module):
+    """
+    Tied decoder version of ConditionalLayers.
+
+    Attributes:
+        layers (nn.ModuleDict): Mirrors of ConditionalLayer with tied weights.
+        selection_order (list[str]): Order of conditional processing.
+    """
+
+    def __init__(
+        self,
+        conditional_layers: ConditionalLayers,
+        # tied_fc_block_config: FCBlockConfig,  # Config for the tied decoder layers
+    ):
+        """
+        Initialize TiedConditionalLayers from ConditionalLayers.
+
+        Args:
+            conditional_layers (ConditionalLayers): The encoder layers to mirror.
+            tied_fc_block_config (FCBlockConfig): Config for tied decoder FC blocks.
+        """
+        super(TiedConditionalLayers, self).__init__()
+
+        # Inherit selection order and mode flags
+        self.selection_order = conditional_layers.selection_order
+        self.is_parallel = conditional_layers.is_parallel
+        self.is_add = conditional_layers.is_add
+        self.shared_conditionals = conditional_layers.shared_conditionals
+
+        # Mirror the structure of ConditionalLayers
+        layer_dict = {}
+        for batch_key, layer in conditional_layers.layers.items():
+            if isinstance(layer, ConditionalLayer):
+                # Shared conditional layer: use tied version
+                layer_dict[batch_key] = TiedConditionalLayer(layer)
+            elif isinstance(layer, nn.ModuleDict):
+                # Species-specific conditional layers
+                layer_dict[batch_key] = nn.ModuleDict({
+                    species: TiedConditionalLayer(species_layer)
+                    for species, species_layer in layer.items()
+                })
+            elif isinstance(layer, FCBlock):
+                # Species-specific FCBlock layer (e.g., 'species')
+                layer_dict[batch_key] = nn.ModuleDict({
+                    species: TiedDecoder(species_layer)
+                    for species, species_layer in layer.items()
+                })
+            else:
+                raise TypeError(f"Unsupported layer type for batch_key {batch_key}")
+
+        self.layers = nn.ModuleDict(layer_dict)
+
+    def forward(self, x, metadata, species: Optional[str] = None):
+        """
+        Forward pass through tied decoder layers.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+            metadata (pd.DataFrame): Metadata with batch information.
+            species (Optional[str]): Optional species-specific selector.
+
+        Returns:
+            torch.Tensor: Output tensor.
+        """
+        if self.is_parallel:
+            outputs = []
+            for batch_key in self.selection_order:
+                layer = self.layers[batch_key]
+                if isinstance(layer, nn.ModuleDict):
+                    if species is None:
+                        raise ValueError(f"Species must be specified for batch_key '{batch_key}'.")
+                    layer = layer[species]
+                outputs.append(layer(x, metadata))
+            return torch.cat(outputs, dim=-1)
+
+        if self.is_add:
+            output = torch.zeros_like(x)
+            for batch_key in self.selection_order:
+                layer = self.layers[batch_key]
+                if isinstance(layer, nn.ModuleDict):
+                    if species is None:
+                        raise ValueError(f"Species must be specified for batch_key '{batch_key}'.")
+                    layer = layer[species]
+                output += layer(x, metadata)
+            return output
+
+        # Sequential mode
+        out = x
+        for batch_key in self.selection_order:
+            layer = self.layers[batch_key]
+            if isinstance(layer, nn.ModuleDict):
+                if species is None:
+                    raise ValueError(f"Species must be specified for batch_key '{batch_key}'.")
+                layer = layer[species]
+            out = layer(out, metadata)
+        return out
 
 class Encoder(nn.Module):
     """
@@ -806,7 +981,6 @@ class Expert(nn.Module):
         encoder (`FCBlock`): encoder network
         decoder (`FCBlock`): decoder network
     """
-
     def __init__(
         self,
         id: str,
@@ -830,7 +1004,7 @@ class Expert(nn.Module):
     def forward(self, *args, **kwargs):
         """
         .. warning::
-            Forward pass will through NotImplementedError
+            Forward pass will throw NotImplementedError
             as it does not make sense to pass through
             joint encoder and decoder.
         """
@@ -843,6 +1017,88 @@ class Expert(nn.Module):
     def decode(self, x: torch.Tensor):
         """Run forward pass on decoder"""
         return self.decoder(x)
+
+class TiedDecoder(nn.Module):
+    def __init__(self, encoder: FCBlock):
+        super().__init__()
+        self.encoder = encoder
+
+        # The decoder bias parameters (you still need these)
+        self.biases = nn.ParameterList([
+            nn.Parameter(torch.zeros(in_features))
+            for in_features in reversed(encoder.config.layers[:-1])
+        ])
+
+        self.activation_fns = list(reversed(encoder.config.activation_fn))
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        x = z
+        num_layers = len(self.encoder.config.layers) - 1
+
+        for i in range(num_layers - 1, -1, -1):
+            encoder_layer = self.encoder.fc_layers[i]
+            linear = encoder_layer[0]  # assumes "lin" is the first
+
+            W = linear.weight  # shape: [out, in]
+            b = self.biases[num_layers - 1 - i]
+
+            x = F.linear(x, W.t(), b)
+
+            # apply activation unless it's the final layer
+            if i > 0 and self.activation_fns[i - 1] is not None:
+                act_fn = self.activation_fns[i - 1]
+                if issubclass(act_fn, nn.Softmax):
+                    x = act_fn(dim=1)(x)
+                else:
+                    x = act_fn()(x)
+
+        return x
+
+# class Expert(nn.Module):
+#     """
+#     Container that stores expert encoder and decoder networks.
+
+#     Attributes:
+#         id (str)
+#         encoder (`FCBlock`): encoder network
+#         decoder (`FCBlock`): decoder network
+#     """
+#     def __init__(
+#         self,
+#         id: str,
+#         encoder_config: FCBlockConfig,
+#         decoder_config: FCBlockConfig,
+#     ):
+#         """
+#         Initialize encoder and decoder network storage.
+
+#         Args:
+#             id (str): Name of expert (unique identifier)
+#             encoder (`FCBlock`): encoder network
+#             decoder (`FCBlock`): decoder network
+#         """
+#         super().__init__()
+
+#         self.id = id
+#         self.encoder = FCBlock(encoder_config)
+#         self.decoder = TiedDecoder(self.encoder)
+
+#     def forward(self, *args, **kwargs):
+#         """
+#         .. warning::
+#             Forward pass will throw NotImplementedError
+#             as it does not make sense to pass through
+#             joint encoder and decoder.
+#         """
+#         raise NotImplementedError(self.forward.__doc__)
+
+#     def encode(self, x: torch.Tensor):
+#         """Run forward pass on encoder"""
+#         return self.encoder(x)
+
+#     def decode(self, x: torch.Tensor):
+#         x = self.decoder(x)
+#         return x
 
 
 class Experts(nn.ModuleDict):

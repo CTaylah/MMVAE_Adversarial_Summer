@@ -1,3 +1,5 @@
+import random
+
 assay = { 
 "DroNc-seq": 0, 
 "microwell-seq": 1, 
@@ -26,3 +28,12 @@ assay = {
 "MARS-seq": 24, 
 "Seq-Well S3": 25, 
 } 
+
+def get_random_assay() -> str:
+    """
+    Get a random assay name from the assay dictionary.
+
+    Returns:
+        str: A random assay name.
+    """
+    return random.choice(list(assay.keys()))

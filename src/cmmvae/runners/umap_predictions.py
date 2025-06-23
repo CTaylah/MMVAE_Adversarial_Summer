@@ -21,6 +21,40 @@ def load_embeddings(npz_path, meta_path):
     metadata = pd.read_pickle(meta_path)
     return embedding, metadata
 
+def load_consistent_metadata(h5file, key, fields_of_interest, data_length):
+    """
+    Load specified metadata fields from HDF5 group `key` and pad them to match `data_length`.
+    If a field is missing, fill with 'unknown'.
+
+    Args:
+        h5file: open h5py File object
+        key: dataset key in h5file
+        fields_of_interest: list of metadata field names to load
+        data_length: expected length of the main data array
+
+    Returns:
+        pd.DataFrame with consistent length and specified metadata fields.
+    """
+    group = h5file[key]["metadata"]
+    metadata_dict = {}
+
+    for field in fields_of_interest:
+        if field in group:
+            data = group[field][:]
+            if len(data) < data_length:
+                # Determine padding value based on dtype
+                if data.dtype.kind in ('U', 'S'):  # string type
+                    pad_value = b"unknown" if data.dtype.kind == 'S' else "unknown"
+                else:
+                    pad_value = np.nan
+                pad_length = data_length - len(data)
+                data = np.concatenate([data, np.full(pad_length, pad_value, dtype=data.dtype)])
+            metadata_dict[field] = data
+        else:
+            metadata_dict[field] = np.full(data_length, "unknown", dtype=object)
+
+    return pd.DataFrame(metadata_dict)
+
 
 def umap_embeddings(
     X,
@@ -119,27 +153,80 @@ def plot_umap_h5(
     save_dir=None,
     n_largest=15,
     method="",
+    fields_of_interest=None,
     **kwargs,
 ):
+    """
+    Generate UMAP plots from HDF5 datasets, handling embeddings and consistent metadata.
+
+    Args:
+        hdf5_filepath (str): Path to HDF5 file.
+        keys (list[str]): Dataset keys in HDF5 to process.
+        categories (list[str]): Metadata categories to plot.
+        save_dir (str, optional): Directory to save plots.
+        n_largest (int): Number of top categories to plot.
+        method (str): Method label for plot titles.
+        fields_of_interest (list[str], optional): Metadata fields to unify across datasets.
+
+    Returns:
+        list[str]: Paths to saved images.
+    """
+    import h5py
+    import numpy as np
+    import os
+    import sys
+
     if not os.path.exists(hdf5_filepath):
         raise FileNotFoundError(hdf5_filepath)
 
+    if fields_of_interest is None:
+        # Default to the shared categories you care about
+        fields_of_interest = ["cell_type", "tissue", "dataset_id", "species"]
+
     image_paths = []
-    for key in keys:
-        data, metadata, embeddings = load_from_hdf5(hdf5_filepath, key)
 
-        if embeddings is None:
-            embeddings = umap_embeddings(data)
-            with h5py.File(hdf5_filepath, "a") as h5file:
-                ds = h5file.get(key)
+    with h5py.File(hdf5_filepath, "a") as h5file:  # open once, read & write allowed
+        for key in keys:
+            if key not in h5file:
+                raise KeyError(f"Key '{key}' not found in HDF5 file")
 
-                if not ds:
-                    raise KeyError("{key} not found in h5py file")
+            group = h5file[key]
 
-                if RK.UMAP_EMBEDDINGS in ds:
-                    del ds[RK.UMAP_EMBEDDINGS]
+            # Load raw data for UMAP
+            data = group["data"][:]  # assuming 'data' dataset exists as (N, features)
+            data_len = data.shape[0]
 
-                ds.create_dataset(
+            # Load metadata from the group and unify fields
+            metadata_dict = {}
+            for field in fields_of_interest:
+                if field in group["metadata"]:
+                    vals = group["metadata"][field][:]
+                    # Convert bytes to string if needed
+                    if vals.dtype.kind == "S":  
+                        vals = np.array([v.decode("utf-8") for v in vals])
+                    # Trim or pad to match data_len
+                    if len(vals) > data_len:
+                        vals = vals[:data_len]
+                    elif len(vals) < data_len:
+                        # pad with empty strings if too short (or handle differently)
+                        vals = np.pad(vals, (0, data_len - len(vals)), constant_values="")
+                    metadata_dict[field] = vals
+                else:
+                    # If field missing, fill with empty strings
+                    metadata_dict[field] = np.array([""] * data_len)
+
+            import pandas as pd
+            metadata = pd.DataFrame(metadata_dict)
+
+            # Load or compute UMAP embeddings
+            if RK.UMAP_EMBEDDINGS in group:
+                embeddings = group[RK.UMAP_EMBEDDINGS][:]
+            else:
+                sys.stderr.write(f"Computing UMAP embeddings for key {key}\n")
+                embeddings = umap_embeddings(data, **kwargs)
+                if RK.UMAP_EMBEDDINGS in group:
+                    del group[RK.UMAP_EMBEDDINGS]
+                group.create_dataset(
                     RK.UMAP_EMBEDDINGS,
                     data=embeddings,
                     shape=embeddings.shape,
@@ -147,19 +234,32 @@ def plot_umap_h5(
                     dtype=embeddings.dtype,
                 )
 
-        save_dir = os.path.dirname(hdf5_filepath) if not save_dir else save_dir
-        os.makedirs(save_dir, exist_ok=True)
-        sys.stderr.write(f"Plotting cateogrys for key {key}\n")
-        image_paths.extend(
-            [
-                plot_category(
-                    embeddings, metadata, category, save_dir, n_largest, key, method
+            # Plot each requested category
+            save_dir_ = save_dir if save_dir else os.path.dirname(hdf5_filepath)
+            os.makedirs(save_dir_, exist_ok=True)
+            sys.stderr.write(f"Plotting categories for key {key}\n")
+
+            for category in categories:
+                if category not in metadata.columns:
+                    sys.stderr.write(f"Warning: category '{category}' not found in metadata for key {key}\n")
+                    continue
+
+                # Filter metadata & embedding to top n_largest categories
+                image_path = plot_category(
+                    embeddings,
+                    metadata,
+                    category,
+                    save_dir_,
+                    n_largest,
+                    key,
+                    method,
                 )
-                for category in categories
-            ]
-        )
+                image_paths.append(image_path)
+
     sys.stderr.write(f"Plotted images at {image_paths}\n")
     return image_paths
+
+
 
 
 def plot_category(

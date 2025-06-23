@@ -1,3 +1,4 @@
+import random
 donor_id = { 
 "HTA11_2487": 0, 
 "HGR0000094": 1, 
@@ -7153,3 +7154,9 @@ donor_id = {
 "640_641": 7151, 
 "FLARE015": 7152, 
 } 
+
+def get_random_donor_id():
+    """
+    Returns a random donor ID from the donor_id_map.
+    """
+    return random.choice(list(donor_id.keys()))

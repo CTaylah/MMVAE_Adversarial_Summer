@@ -112,27 +112,27 @@ class SpeciesManager:
         def generator(source):
             tensor, metadata = source
 
-            assay_values = metadata["assay"].values
-            donor_id_values = metadata["donor_id"].values
-            dataset_id_values = metadata["dataset_id"].values
+            # assay_values = metadata["assay"].values
+            # donor_id_values = metadata["donor_id"].values
+            # dataset_id_values = metadata["dataset_id"].values
 
-            one_hot_donor_id = encode_conditional(donor_id_values, donor_id_dict.donor_id)
-            one_hot_dataset_id = encode_conditional(dataset_id_values, dataset_id_dict.dataset_id)
-            one_hot_assay = encode_conditional(assay_values, assay_dict.assay)
-            one_hot_cell_type = encode_conditional(metadata["cell_type"].values, cell_type_dict.cell_type)
-            one_hot_species = encode_conditional([self.name], species_mapping, species=True)
+            # one_hot_donor_id = encode_conditional(donor_id_values, donor_id_dict.donor_id)
+            # one_hot_dataset_id = encode_conditional(dataset_id_values, dataset_id_dict.dataset_id)
+            # one_hot_assay = encode_conditional(assay_values, assay_dict.assay)
+            # one_hot_cell_type = encode_conditional(metadata["cell_type"].values, cell_type_dict.cell_type)
+            # one_hot_species = encode_conditional([self.name], species_mapping, species=True)
             
-            one_hot_labels = {
-                "donor_id": one_hot_donor_id,
-                "dataset_id": one_hot_dataset_id,
-                "assay": one_hot_assay,
-                "cell_type": one_hot_cell_type,
-                "species": one_hot_species
-            }
+            # one_hot_labels = {
+            #     "donor_id": one_hot_donor_id,
+            #     "dataset_id": one_hot_dataset_id,
+            #     "assay": one_hot_assay,
+            #     "cell_type": one_hot_cell_type,
+            #     "species": one_hot_species
+            # }
 
 
 
-            return tensor, metadata, self.name, one_hot_labels
+            return tensor, metadata, self.name, #one_hot_labels
 
         return generator
 

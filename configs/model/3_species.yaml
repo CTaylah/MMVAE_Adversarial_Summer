@@ -1,3 +1,4 @@
+
 class_path: cmmvae.models.CMMVAEModel
 init_args:
   kl_annealing_fn:
@@ -9,7 +10,7 @@ init_args:
       climax_steps: 6e3
   record_gradients: false
   adv_weight: 0.0
-  cycle_weight: 0.30
+  cycle_weight: 1.00
   adversarial_method: "GRF"
   gradient_record_cap: 20
   autograd_config:
@@ -63,24 +64,43 @@ init_args:
               use_batch_norm: False
               use_layer_norm: True
               activation_fn: null
-          concat_config:
-            class_path: cmmvae.modules.base.ConcatBlockConfig
-            init_args:
-              dropout_rate: 0.0
-              use_batch_norm: False
-              use_layer_norm: True
-              activation_fn: torch.nn.ReLU
+          # concat_config:
+          #   class_path: cmmvae.modules.base.ConcatBlockConfig
+          #   init_args:
+          #     dropout_rate: 0.0
+          #     use_batch_norm: False
+          #     use_layer_norm: True
+          #     activation_fn: torch.nn.ReLU
           conditionals:
           # - assay
           # - donor_id
-          - dataset_id
+          # - dataset_id
           # - species
           selection_order: 
-          - dataset_id
+          - None
       experts:
         class_path: cmmvae.modules.base.Experts
         init_args:
           experts:
+          - class_path: cmmvae.modules.base.Expert
+            init_args:
+              id: zebrafish
+              encoder_config:
+                class_path: cmmvae.modules.base.FCBlockConfig
+                init_args:
+                  layers: [ 32031, 512 ]
+                  dropout_rate: [ 0.1 ]
+                  use_batch_norm: False
+                  use_layer_norm: True
+                  activation_fn: torch.nn.ReLU
+              decoder_config:
+                class_path: cmmvae.modules.base.FCBlockConfig
+                init_args:
+                  layers: [ 512,  32031 ]
+                  dropout_rate: 0.0
+                  use_batch_norm: False
+                  use_layer_norm: True
+                  activation_fn: torch.nn.ReLU
           - class_path: cmmvae.modules.base.Expert
             init_args:
               id: human

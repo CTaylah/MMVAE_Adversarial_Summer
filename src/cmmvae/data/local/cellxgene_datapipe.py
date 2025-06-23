@@ -9,7 +9,6 @@ import torch
 from torchdata.datapipes.iter import FileLister, IterDataPipe, Zipper, Multiplexer
 from torch.utils.data import functional_datapipe
 
-
 class safe_functional_datapipe(functional_datapipe):
     """
     Wraps functional_datapipe registration in try/except.
@@ -118,6 +117,7 @@ class ShuffleCSRMatrixAndDataFrameDataPipe(IterDataPipe):
 
             dataframe = dataframe.iloc[permutation].reset_index(drop=True)
             sparse_matrix = sparse_matrix[permutation]
+
 
             yield (sparse_matrix, dataframe)
 

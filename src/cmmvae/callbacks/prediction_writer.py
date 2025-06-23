@@ -16,7 +16,7 @@ def save_to_hdf5(
     metadata: pd.DataFrame,
     hdf5_filepath: str,
     key: str,
-    strict: bool = True,
+    strict: bool = False,
 ):
     """
     Save numpy array `data` and pandas DataFrame `metadata` to HDF5 file.
