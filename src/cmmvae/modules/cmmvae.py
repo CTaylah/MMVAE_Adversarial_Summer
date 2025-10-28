@@ -6,7 +6,8 @@ import torch
 from torch import nn
 
 from cmmvae.modules.base import Experts, FCBlock, FCBlockConfig, AdversarialsGroup
-from cmmvae.modules import CLVAE
+from cmmvae.modules import CLVAE, VAE
+from cmmvae.modules import Autoencoder
 from cmmvae.modules.base import ConditionalLayers
 from cmmvae.constants import REGISTRY_KEYS as RK
 
@@ -39,7 +40,7 @@ class CMMVAE(nn.Module):
 
     def __init__(
         self,
-        vae: CLVAE,
+        vae: Union[CLVAE, Autoencoder, VAE],
         experts: Experts,
         adversarial_groups: adversarials_TYP = None,
     ):

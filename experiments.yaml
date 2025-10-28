@@ -1,23 +1,24 @@
 # experiments.yaml
-experiment_name: embedding
-run_name: Embedding_Output_euclidean_w0.30
+experiment_name: cc_grid
+run_name: true_vae_weighted_recon_mse_no_division_weight_100
 train_command:
   fit:
-    # model: configs/model/3_species.yaml
     model: configs/liam_based/liam_clone_conditionals_no_adv.yaml
     trainer:
       track:
-        # test: configs/trainer/config.test.yaml
+        test: configs/trainer/config.test.yaml
         full: configs/trainer/config.yaml
     data:
       track:
         local: configs/data/local_chunk.yaml
+        subset: configs/data/heart.yaml
         # server: configs/data/server.yaml
 
 categories:
 - 'dataset_id'
 - 'cell_type'
 - 'species'
+- 'assay'
 
 merge_keys:
 - z

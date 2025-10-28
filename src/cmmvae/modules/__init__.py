@@ -4,6 +4,7 @@
 """
 from cmmvae.modules import base
 from cmmvae.modules.vae import VAE
+from cmmvae.modules.vae import Autoencoder
 from cmmvae.modules.clvae import CLVAE
 from cmmvae.modules.cmmvae import CMMVAE
 
@@ -12,4 +13,5 @@ __all__ = [
     "CLVAE",
     "CMMVAE",
     "VAE",
+    "Autoencoder",
 ]

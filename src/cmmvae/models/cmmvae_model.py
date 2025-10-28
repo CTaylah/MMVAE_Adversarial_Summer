@@ -49,8 +49,8 @@ class CMMVAEModel(BaseModel):
     def __init__(
         self,
         module: CMMVAE,
-        adv_weight,
-        cycle_weight,
+        adv_weight=0,
+        cycle_weight=0,
         adversarial_method="",
         autograd_config: Optional[AutogradConfig] = None,
         *args,
@@ -216,12 +216,11 @@ class CMMVAEModel(BaseModel):
 
         return loss
 
-
+        
     def training_step(
         self, batch: tuple[torch.Tensor, pd.DataFrame, str, list[torch.Tensor]], batch_idx: int
     ) -> None:
-        # x, metadata, expert_id, labels = batch
-        x, metadata, expert_id, = batch
+        x, metadata, expert_id, labels, weights = batch
 
         all_expert_ids = ["mouse", "human"]
 
@@ -240,29 +239,15 @@ class CMMVAEModel(BaseModel):
 
         # Calculate reconstruction loss
         main_loss_dict = self.module.vae.elbo(
-            qz, pz, x, xhats[expert_id], self.kl_annealing_fn.kl_weight
+            qz, pz, x, xhats[expert_id], self.kl_annealing_fn.kl_weight, feature_weights=weights
         )
+
+
         total_loss = main_loss_dict[RK.LOSS]
 
-        # adv_loss = None
-        # if self.module.adversarial_groups and self.current_epoch >= 0:
-        #     adv_loss = self.liam_grf(
-        #         hidden_representations,
-        #         labels,
-        #         main_loss_dict,
-        #     )
-
-        # if adv_loss is not None:
-        #     main_loss_dict[RK.ADV_LOSS] = adv_loss
-        #     total_loss += adv_loss * self.adv_weight
-
-        # centroids = self.compute_centroids(
-        #     hidden_representations[0], labels["cell_type"]
-        # )
-
-        # self.update_ema_centroids(centroids)
-        # alignment_loss = self.alignment_loss(hidden_representations[0], labels["cell_type"])
-        # main_loss_dict["alignment_loss"] = alignment_loss
+        #Feed real data through adversarial networks
+        if self.module.adversarial_groups:
+            self.module.adversarial_groups
 
         self.log_gradient_norms(
             {"vae": vae_optimizer, f"expert_{expert_id}": expert_optimizer},
@@ -270,53 +255,101 @@ class CMMVAEModel(BaseModel):
         )
 
 
+        all_expert_ids.remove(expert_id)
         cross_id = random.choice(all_expert_ids)
+
+        #( h-> m)
         cross_batch = xhats[cross_id]
 
-        #genereate the original domain
-        qz, pz, z, cyclic_xhats, cross_hidden_representations = self.module(
+
+        z_1 = z
+        #Cross modality cyclic loss ( (h -> m) -> h)
+        qz, pz, z_2h, cross_cyclic_xhats, cross_hidden_representations = self.module(
             x=cross_batch, metadata=metadata, expert_id=cross_id, cross_generate=True
         )
+        #()
+        cross_cyclic_elbo = self.module.vae.elbo(
+            qz, pz, xhats[expert_id], cross_cyclic_xhats[expert_id], self.kl_annealing_fn.kl_weight, feature_weights=weights
+        )
 
-        embedding = hidden_representations[0]
-        cross_embedding = cross_hidden_representations[0]
 
-        # embedding_cross_loss = torch.nn.functional.mse_loss(
-        #     embedding, cross_embedding, reduction="sum"
-        # )
-        # embedding_cross_loss_mean = torch.nn.functional.mse_loss(
-        #     embedding, cross_embedding, reduction="mean"
-        # )
+        #Cis modality cyclic loss (h -> h -> h)
+        qz, pz, z_2m, cis_cyclic_xhats, cis_hidden_representations = self.module(
+            x=xhats[expert_id], metadata=metadata, expert_id=expert_id, cross_generate=False
+        )
 
-        same_modality_sample = cyclic_xhats[expert_id]
+        cis_cyclic_elbo = self.module.vae.elbo(
+            qz, pz, xhats[expert_id], cis_cyclic_xhats[expert_id], self.kl_annealing_fn.kl_weight, feature_weights=weights
+        )
 
-        #calculate loss between original reconstruction and cross generated reconstruction
-        # cyclic_loss = torch.nn.functional.mse_loss(
-        #     same_modality_sample, xhats[expert_id], reduction="sum"
-        # )
+        embedding_loss_1 = torch.nn.functional.mse_loss(
+            z_1, z_2h, reduction="sum"
+        )
 
-        # cyclic_loss_mean = torch.nn.functional.mse_loss(
-        #     same_modality_sample, xhats[expert_id], reduction="mean"
-        # )
+        embedding_loss_2 = torch.nn.functional.mse_loss(
+            z_1, z_2m, reduction="sum"
+        )
 
-        cyclic_loss = torch.cdist(same_modality_sample, xhats[expert_id], p=2).sum()
-        embedding_cross_loss = torch.cdist(embedding, cross_embedding, p=2).sum()
+        embedding_loss_3 = torch.nn.functional.mse_loss(
+            z_2m, z_2h, reduction="sum"
+        )
 
-        # main_loss_dict["embedding_cross_loss_mean"] = embedding_cross_loss_mean
-        main_loss_dict["embedding_cross_loss"] = embedding_cross_loss
-        main_loss_dict["cyclic_loss"] = cyclic_loss
+        loss_G = 0
+        #------------------- GAN section -------------------
+        real_data = xhats[expert_id]
+        if self.module.adversarial_groups:
+            #find adversarial with the correct conditional
+            for adv_group in self.module.adversarial_groups:
+                if adv_group.conditional == expert_id:
+                    adversarial = adv_group.adversarials[0].to(self.device)
+                    break
+
+            real_labels = torch.ones(real_data.shape[0], 1, dtype=torch.float32).to(self.device)
+            real_prediction = adversarial(real_data)
+            loss_real = torch.nn.functional.binary_cross_entropy(real_prediction, real_labels, reduction="sum")
+
+            generated_data = cross_cyclic_xhats[expert_id]
+            fake_labels = torch.zeros(generated_data.shape[0], 1, dtype=torch.float32).to(self.device)
+
+            fake_prediction = adversarial(generated_data.detach())
+            loss_fake = torch.nn.functional.binary_cross_entropy(fake_prediction, fake_labels, reduction="sum")
+
+
+            loss_d = loss_real + loss_fake
+            self.manual_backward(loss_d, retain_graph=True)
+            self.step_adv_optimizers()
+
+
+            #Train VAE
+            loss_G = torch.nn.functional.binary_cross_entropy(adversarial(generated_data), real_labels, reduction="sum")
+
+            #Log losses
+            main_loss_dict["D Loss " + expert_id] = loss_d
+            main_loss_dict["G Loss " + expert_id] = loss_G
+
+        #-------------------
+
+        main_loss_dict["cross_reconstruction"] = cross_cyclic_elbo[RK.RECON_LOSS]
+        main_loss_dict["cis_reconstruction"] = cis_cyclic_elbo[RK.RECON_LOSS]
+        main_loss_dict["cross_kl"] = cross_cyclic_elbo[RK.KL_LOSS]
+        main_loss_dict["cis_kl"] = cis_cyclic_elbo[RK.KL_LOSS]
         main_loss_dict["cyclic_weight"] = self.cycle_weight
         main_loss_dict["adv_weight"] = self.adv_weight
 
-        if self.current_epoch >= 1:
-            total_loss += cyclic_loss * self.cycle_weight + embedding_cross_loss * self.cycle_weight
+        #logg embedding losses
+        main_loss_dict["embedding_loss_1"] = embedding_loss_1
+        main_loss_dict["embedding_loss_2"] = embedding_loss_2
+        main_loss_dict["embedding_loss_3"] = embedding_loss_3
 
         # if self.current_epoch >= 0:
-        #     cyclic_condition_loss = self.cyclic_condition_loss(
-        #         xhats[expert_id], metadata, expert_id
-        #     )
-        #     total_loss += cyclic_condition_loss * self.cycle_weight
-        #     main_loss_dict["cyclic_condition_loss"] = cyclic_condition_loss
+            # total_loss += cross_cyclic_elbo[RK.LOSS]
+            # total_loss += cis_cyclic_elbo[RK.LOSS]
+            # if loss_G != 0:
+            #     total_loss += loss_G * self.adv_weight
+
+        #     total_loss += embedding_loss_1
+        #     total_loss += embedding_loss_2
+        #     total_loss += embedding_loss_3
 
         self.manual_backward(
             total_loss, retain_graph=True
@@ -370,7 +403,7 @@ class CMMVAEModel(BaseModel):
         Args:
             batch (tuple): Batch of data containing inputs, metadata, and expert ID.
         """
-        x, metadata, expert_id = batch
+        x, metadata, expert_id, labels, weights = batch
         # expert_label = self.module.experts.labels[expert_id]
 
         # Perform forward pass and compute the loss
@@ -381,7 +414,7 @@ class CMMVAEModel(BaseModel):
 
         # Calculate reconstruction loss
         loss_dict = self.module.vae.elbo(
-            qz, pz, x, xhats[expert_id], self.kl_annealing_fn.kl_weight
+            qz, pz, x, xhats[expert_id], self.kl_annealing_fn.kl_weight, feature_weights=weights
         )
 
         self.auto_log(loss_dict, tags=[self.stage_name, expert_id])
@@ -404,7 +437,7 @@ class CMMVAEModel(BaseModel):
             batch (tuple): Batch of data containing inputs, metadata, and expert ID.
             batch_idx (int): Index of the batch.
         """
-        x, metadata, species  = batch
+        x, metadata, species, _, _ = batch
         embeddings = self.module.get_latent_embeddings(x, metadata, species)
         return embeddings
         # self.save_predictions(embeddings, batch_idx)

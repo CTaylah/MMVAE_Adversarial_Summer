@@ -139,6 +139,9 @@ def plot_umap(
             metadata.to_pickle(metadata_path)
 
         for category in categories:
+            if category == "unknown":
+                sys.stderr.write(f"Skipping category '{category}' for key {key}\n")
+                continue
             image_path = plot_category(
                 embedding, metadata, category, save_dir, n_largest, key, method
             )
@@ -181,7 +184,7 @@ def plot_umap_h5(
 
     if fields_of_interest is None:
         # Default to the shared categories you care about
-        fields_of_interest = ["cell_type", "tissue", "dataset_id", "species"]
+        fields_of_interest = ["cell_type", "tissue", "dataset_id", "species", "assay"]
 
     image_paths = []
 

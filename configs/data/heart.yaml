@@ -1,3 +1,4 @@
+
 class_path: cmmvae.data.local.SpeciesDataModule
 init_args:
   species:
@@ -6,7 +7,7 @@ init_args:
       name: human
       return_dense: true
       batch_size: 128
-      directory_path: /mnt/projects/debruinz_project/july2024_census_data/subset
+      directory_path: /mnt/projects/debruinz_project/cardell_taylor/3m_filtered_data/old_assay/10x_assay
       train_npz_masks:
       - human_counts_1.npz
       - human_counts_2.npz
@@ -15,12 +16,12 @@ init_args:
       - human_counts_5.npz
       - human_counts_6.npz
       - human_counts_7.npz
-      # - human_counts_8.npz
-      # - human_counts_9.npz
-      # - human_counts_10.npz
-      # - human_counts_11.npz
-      # - human_counts_12.npz
-      # - human_counts_13.npz
+      - human_counts_8.npz
+      - human_counts_9.npz
+      - human_counts_10.npz
+      - human_counts_11.npz
+      - human_counts_12.npz
+      - human_counts_13.npz
       train_metadata_masks:
       - human_metadata_1.pkl
       - human_metadata_2.pkl
@@ -29,12 +30,12 @@ init_args:
       - human_metadata_5.pkl
       - human_metadata_6.pkl
       - human_metadata_7.pkl
-      # - human_metadata_8.pkl
-      # - human_metadata_9.pkl
-      # - human_metadata_10.pkl
-      # - human_metadata_11.pkl
-      # - human_metadata_12.pkl
-      # - human_metadata_13.pkl
+      - human_metadata_8.pkl
+      - human_metadata_9.pkl
+      - human_metadata_10.pkl
+      - human_metadata_11.pkl
+      - human_metadata_12.pkl
+      - human_metadata_13.pkl
       val_npz_masks: human_counts_14.npz
       val_metadata_masks: human_metadata_14.pkl
       test_npz_masks: human_counts_15.npz
@@ -45,7 +46,7 @@ init_args:
       name: mouse
       return_dense: true
       batch_size: 128
-      directory_path: /mnt/projects/debruinz_project/july2024_census_data/subset
+      directory_path: /mnt/projects/debruinz_project/cardell_taylor/3m_filtered_data/old_assay/10x_assay
       train_npz_masks:
       - mouse_counts_1.npz
       - mouse_counts_2.npz
@@ -54,12 +55,12 @@ init_args:
       - mouse_counts_5.npz
       - mouse_counts_6.npz
       - mouse_counts_7.npz
-      # - mouse_counts_8.npz
-      # - mouse_counts_9.npz
-      # - mouse_counts_10.npz
-      # - mouse_counts_11.npz
-      # - mouse_counts_12.npz
-      # - mouse_counts_13.npz
+      - mouse_counts_8.npz
+      - mouse_counts_9.npz
+      - mouse_counts_10.npz
+      - mouse_counts_11.npz
+      - mouse_counts_12.npz
+      - mouse_counts_13.npz
       train_metadata_masks:
       - mouse_metadata_1.pkl
       - mouse_metadata_2.pkl
@@ -68,12 +69,12 @@ init_args:
       - mouse_metadata_5.pkl
       - mouse_metadata_6.pkl
       - mouse_metadata_7.pkl
-      # - mouse_metadata_8.pkl
-      # - mouse_metadata_9.pkl
-      # - mouse_metadata_10.pkl
-      # - mouse_metadata_11.pkl
-      # - mouse_metadata_12.pkl
-      # - mouse_metadata_13.pkl
+      - mouse_metadata_8.pkl
+      - mouse_metadata_9.pkl
+      - mouse_metadata_10.pkl
+      - mouse_metadata_11.pkl
+      - mouse_metadata_12.pkl
+      - mouse_metadata_13.pkl
       val_npz_masks: mouse_counts_14.npz
       val_metadata_masks: mouse_metadata_14.pkl
       test_npz_masks: mouse_counts_15.npz

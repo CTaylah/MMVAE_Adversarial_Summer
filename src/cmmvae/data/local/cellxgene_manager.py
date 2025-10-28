@@ -5,6 +5,7 @@ from cmmvae.data.encoding_dicts import assay_dict
 from cmmvae.data.encoding_dicts import donor_id_dict
 from cmmvae.data.encoding_dicts import dataset_id_dict
 from cmmvae.data.encoding_dicts import cell_type_dict
+from cmmvae.data.encoding_dicts import marker_dicts
 import torch
 
 
@@ -109,30 +110,47 @@ class SpeciesManager:
 
             return one_hot_matrix
 
+        def get_feature_weights(cell_type_values, tensor):
+            feature_weights = torch.ones(tensor.shape[0], tensor.shape[1])
+            if self.name == "human":
+                marker_dict = marker_dicts.human_marker_dict
+            elif self.name == "mouse":
+                marker_dict = marker_dicts.mouse_marker_dict
+            else:
+                raise ValueError("Unexpected species given")
+            
+            for i, cell_type in enumerate(cell_type_values):
+                if cell_type in marker_dict:
+                    feature_indices = marker_dict[cell_type]
+                    feature_weights[i, feature_indices] = 100.0
+
+                
+            return feature_weights
+
         def generator(source):
             tensor, metadata = source
 
-            # assay_values = metadata["assay"].values
-            # donor_id_values = metadata["donor_id"].values
-            # dataset_id_values = metadata["dataset_id"].values
+            assay_values = metadata["assay"].values
+            donor_id_values = metadata["donor_id"].values
+            dataset_id_values = metadata["dataset_id"].values
 
             # one_hot_donor_id = encode_conditional(donor_id_values, donor_id_dict.donor_id)
             # one_hot_dataset_id = encode_conditional(dataset_id_values, dataset_id_dict.dataset_id)
             # one_hot_assay = encode_conditional(assay_values, assay_dict.assay)
-            # one_hot_cell_type = encode_conditional(metadata["cell_type"].values, cell_type_dict.cell_type)
+            one_hot_cell_type = encode_conditional(metadata["cell_type"].values, cell_type_dict.cell_type)
             # one_hot_species = encode_conditional([self.name], species_mapping, species=True)
             
-            # one_hot_labels = {
-            #     "donor_id": one_hot_donor_id,
-            #     "dataset_id": one_hot_dataset_id,
-            #     "assay": one_hot_assay,
-            #     "cell_type": one_hot_cell_type,
-            #     "species": one_hot_species
-            # }
+            one_hot_labels = {
+                # "donor_id": one_hot_donor_id,
+                # "dataset_id": one_hot_dataset_id,
+                # "assay": one_hot_assay,
+                "cell_type": one_hot_cell_type,
+                # "species": one_hot_species
+            }
 
+            feature_weights = get_feature_weights(cell_type_values=metadata["cell_type"].values, tensor=tensor)
 
-
-            return tensor, metadata, self.name, #one_hot_labels
+            return tensor, metadata, self.name, one_hot_labels, feature_weights
 
         return generator
 

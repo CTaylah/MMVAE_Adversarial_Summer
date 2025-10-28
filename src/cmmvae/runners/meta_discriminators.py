@@ -88,7 +88,6 @@ def create_dataloader(batch_size: int):
 
     return mm_loader
 
-
 def train_md(
     model: CMMVAEModel,
     dataloader,

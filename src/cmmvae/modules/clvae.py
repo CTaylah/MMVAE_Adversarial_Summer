@@ -86,7 +86,6 @@ class CLVAE(VAE):
         )
 
         self.conditionals = conditionals_module
-        self.tied_conditionals = TiedConditionalLayers(self.conditionals)
 
     def after_reparameterize(
         self, z: torch.Tensor, metadata: pd.DataFrame, **kwargs
@@ -106,19 +105,16 @@ class CLVAE(VAE):
             torch.Tensor:
                 Processed latent variable after applying conditionals, if any.
         """
-        residual = z
-        beta = 0.1
+        # residual = z
+        # beta = 0.1
         if self.conditionals:
             conditional_output = self.conditionals(
                 z, metadata, **kwargs
             )
-            conditional_output += residual * beta
-
-            return self.tied_conditionals(
+            return self.conditionals(
                 conditional_output, metadata, **kwargs
             )
-        # Return the unmodified latent variable
-        # if no conditionals are present
+
         return z
 
     # def encode(self, x: torch.Tensor, metadata: pd.DataFrame, **kwargs):

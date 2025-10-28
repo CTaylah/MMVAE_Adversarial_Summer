@@ -1,8 +1,10 @@
+from collections.abc import Callable
 import pandas as pd
 import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.distributions import Normal, kl_divergence, Distribution
+
 
 from cmmvae.modules import base
 from cmmvae.constants import REGISTRY_KEYS as RK
@@ -101,6 +103,8 @@ class BaseVAE(nn.Module):
         hidden_representations.append(z)
         xhat = self.decode(z_mod, **kwargs)
         return qz, pz, z_mod, xhat, hidden_representations
+    
+
 
     def elbo(
         self,
@@ -109,6 +113,7 @@ class BaseVAE(nn.Module):
         x: torch.Tensor,
         xhat: torch.Tensor,
         kl_weight: float,
+        feature_weights,
         **kwargs,
     ) -> dict[str, torch.Tensor]:
         """
@@ -141,9 +146,14 @@ class BaseVAE(nn.Module):
         if x.layout == torch.sparse_csr:
             x = x.to_dense()
 
-        recon_loss = F.mse_loss(xhat, x, reduction="sum")
+        # recon_loss = F.mse_loss(xhat, x, reduction="sum")
         # recon_loss = F.mse_loss(xhat, x, reduction="none")
         # recon_loss = recon_loss.sum(dim=1)
+        recon_loss = weighted_mse_loss(
+            predictions=xhat,
+            targets=x,
+            weights=feature_weights,
+        )
 
         loss = recon_loss + (kl_weight * z_kl_div)
         # loss = torch.mean(z_kl_div * kl_weight + recon_loss)
@@ -210,3 +220,153 @@ class VAE(BaseVAE):
             ),
             decoder=base.FCBlock(decoder_config),
         )
+
+
+class BaseAutoencoder(nn.Module):
+    """
+    Autoencoder class.
+
+    This class implements a simple autoencoder structure
+    with configurable encoder and decoder architectures.
+
+    Args:
+        encoder (nn.Module): The encoder model.
+        decoder (nn.Module): The decoder model.
+    """
+
+    def __init__(self, encoder: nn.Module, decoder: nn.Module):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+
+    def encode(self, x: torch.Tensor):
+        out = self.encoder(x)
+        if isinstance(out, tuple):
+            z, hidden_representations = out
+        else:
+            z = out
+            hidden_representations = []
+        hidden_representations.append(z)
+        return None, z, hidden_representations
+
+    def forward(self, x: torch.Tensor, metadata: pd.DataFrame,**kwargs) -> torch.Tensor:
+        """
+        Forward pass through the autoencoder.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, n_in).
+
+        Returns:
+            torch.Tensor: Reconstructed input tensor.
+        """
+        z = self.encoder(x)
+        if isinstance(z, tuple):
+            z, hidden_representations = z
+        else:
+            hidden_representations = []
+
+        xhat = self.decoder(z)
+        hidden_representations.append(z)
+        return None, None, z, xhat, hidden_representations
+
+
+    def elbo(
+        self,
+        qz: Distribution,
+        pz: Distribution,
+        x: torch.Tensor,
+        xhat: torch.Tensor,
+        kl_weight: float,
+        **kwargs,
+    ) -> dict[str, torch.Tensor]:
+        """
+        Compute the reconstruction loss.
+
+        Args:
+            x (torch.Tensor): Original input tensor of shape (batch_size, n_in).
+            xhat (torch.Tensor): Reconstructed input tensor of shape (batch_size, n_out).
+
+        Returns:
+            dict: Dictionary containing the reconstruction loss and KL loss (which is 0) this is for easy replacement with the VAE class.
+        """
+        recon_loss = F.mse_loss(xhat, x, reduction="sum")
+        recon_loss = recon_loss / x.numel()
+        # KL loss is zero for a standard autoencoder
+        kl_loss = torch.tensor(0.0, device=x.device)
+
+        return {
+            RK.LOSS: recon_loss + kl_loss,
+            RK.RECON_LOSS: recon_loss,
+            RK.KL_LOSS: kl_loss,
+            RK.KL_WEIGHT: torch.tensor(0.0, device=x.device),
+        }
+
+
+    @torch.no_grad()
+    def get_latent_embeddings(
+        self, x: torch.Tensor, metadata: pd.DataFrame, **kwargs
+    ) -> dict[str, torch.Tensor]:
+        """
+        Obtain latent embeddings from the input data.
+
+        This method returns the latent embeddings and
+        associated metadata for the input data.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, n_in).
+            metadata (pd.DataFrame): Metadata associated with the input data.
+
+        Returns:
+            dict: Dictionary containing the following keys and values:
+                - RK.Z: Latent embeddings.
+                - f"{RK.Z}_{RK.METADATA}": Metadata.
+        """
+        z = self.encoder(x)
+
+        return {RK.Z: z, f"{RK.Z}_{RK.METADATA}": metadata}
+
+
+class Autoencoder(BaseAutoencoder):
+    """
+    Autoencoder with configurable encoder and decoder blocks.
+
+    This class extends the BaseAutoencoder to utilize
+    specific configurations for the encoder and decoder.
+
+    Args:
+        encoder_config (cmmvae.modules.baseFCBlockConfig):
+            Configuration for the encoder's fully connected block.
+        decoder_config (cmmvae.modules.baseFCBlockConfig):
+            Configuration for the decoder's fully connected block.
+        encoder_kwargs (dict): Additional keyword arguments for the encoder.
+    """
+
+    def __init__(
+        self,
+        encoder_config: base.FCBlockConfig,
+        decoder_config: base.FCBlockConfig,
+    ):
+        super().__init__(
+            encoder=base.FCBlock(encoder_config),
+            decoder=base.FCBlock(decoder_config),
+        )
+
+def weighted_mse_loss(predictions: torch.Tensor, targets: torch.Tensor, weights: torch.Tensor):
+    """
+    Compute a weighted mean squared error loss.
+
+    Args:
+        predictions (torch.Tensor): Predicted values.
+        targets (torch.Tensor): Target values.
+        weights (torch.Tensor): Weights for each sample.
+
+    Returns:
+        torch.Tensor: Computed weighted MSE loss.
+    """
+
+    
+    loss = torch.nn.functional.mse_loss(predictions, targets, reduction='none')
+
+    weighted_loss = loss * weights
+    return weighted_loss.sum()
